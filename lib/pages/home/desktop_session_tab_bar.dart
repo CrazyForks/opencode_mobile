@@ -35,12 +35,16 @@ class DesktopSessionTabBar extends StatefulWidget {
 }
 
 class _DesktopSessionTabBarState extends State<DesktopSessionTabBar> {
-  static const double _newBtnWidth = 30.0;
+  static const double _newBtnWidth = 24.0;
   static const double _newBtnGap = 8.0;
   static const double _tabMargin = 2.0;
   static const double _minTabWidth = 44.0; // 极限压缩下限
 
   final ScrollController _scrollController = ScrollController();
+  // 标题文本(+字重)→自然宽度缓存：_computeTabWidths 在每次 build 与每次
+  // _scrollToActive 都会调用，TextPainter..layout() 逐帧重建会掉帧。
+  // key 包含标题文本与字重，改名/激活态变化自然落到新 key；设上限防无限增长。
+  final Map<String, double> _naturalWidthCache = {};
 
   @override
   void initState() {
@@ -70,18 +74,35 @@ class _DesktopSessionTabBarState extends State<DesktopSessionTabBar> {
     if (count == 0) return const <double>[];
 
     // 1. 测量每个 Tab 的自然内容宽度（自适应标题长度，短标题紧凑，长标题适度舒展）
+    // 字重与渲染一致（active w600 / 非 active w400），否则宽度系统性高估、
+    // 更早进入压缩。
     final naturalWidths = <double>[];
     for (final id in widget.openedIds) {
+      final title = widget.sessionCtrl.getSessionName(id);
+      final isActive = id == widget.activeId;
+      final cacheKey = '$title|${isActive ? 600 : 400}';
+      final cached = _naturalWidthCache[cacheKey];
+      if (cached != null) {
+        naturalWidths.add(cached);
+        continue;
+      }
       final painter = TextPainter(
         text: TextSpan(
-          text: widget.sessionCtrl.getSessionName(id),
-          style: const TextStyle(fontSize: 12.0, fontWeight: FontWeight.w600),
+          text: title,
+          style: TextStyle(
+            fontSize: 12.0,
+            fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+          ),
         ),
         textDirection: TextDirection.ltr,
         maxLines: 1,
       )..layout();
       // 内容宽度 = 文本宽度 + 左右内边距 + 悬停关闭按钮预留空间
-      naturalWidths.add((painter.width + 36.0).clamp(64.0, 200.0));
+      final natural = (painter.width + 36.0).clamp(64.0, 200.0);
+      painter.dispose();
+      if (_naturalWidthCache.length > 500) _naturalWidthCache.clear();
+      _naturalWidthCache[cacheKey] = natural;
+      naturalWidths.add(natural);
     }
 
     final totalNaturalWidth =
@@ -134,12 +155,10 @@ class _DesktopSessionTabBarState extends State<DesktopSessionTabBar> {
     final maxExtent = _scrollController.position.maxScrollExtent;
     if (maxExtent <= 0) return;
 
-    // 滚动视口宽度即 LayoutBuilder 的 maxWidth，可据此还原出 build 时
-    // 使用的 availableWidth，从而按需重算宽度而无需跨帧缓存。
+    // 滚动视口即滚动区的可用宽度（[+] 钉在滚动区外，不计入视口），
+    // 直接按视口宽度重算即可，无需再扣减按钮预留。
     final viewportDimension = _scrollController.position.viewportDimension;
-    final availableWidth = (viewportDimension - _newBtnWidth - _newBtnGap)
-        .clamp(0.0, double.infinity);
-    final widths = _computeTabWidths(availableWidth);
+    final widths = _computeTabWidths(viewportDimension);
     if (index >= widths.length) return;
 
     double offsetBefore = 0.0;
@@ -159,8 +178,7 @@ class _DesktopSessionTabBarState extends State<DesktopSessionTabBar> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.openedIds.isEmpty) return const SizedBox.shrink();
-
+    // 空态也保留 [+]（常驻新建入口），滚动区为空。
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableWidth =
@@ -210,40 +228,66 @@ class _DesktopSessionTabBarState extends State<DesktopSessionTabBar> {
           );
         }
 
-        final tabRow = Row(
+        // 纯页签内容（不含 [+]，[+] 钉在滚动区外）。
+        final tabsRow = Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: tabs,
+        );
+
+        // [+] 常驻 trailing，不进滚动内容。
+        final newButton = Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            ...tabs,
-            const SizedBox(width: 4),
+            SizedBox(width: _newBtnGap),
             _NewSessionTabButton(
               onTap: () => widget.sessionCtrl.createNewSession(),
             ),
           ],
         );
 
+        final Widget scrollArea;
         if (isScrollable) {
-          return Listener(
+          scrollArea = Listener(
             onPointerSignal: (pointerSignal) {
               if (pointerSignal is PointerScrollEvent &&
-                  _scrollController.hasClients &&
-                  pointerSignal.scrollDelta.dy != 0) {
-                final target =
-                    (_scrollController.offset + pointerSignal.scrollDelta.dy)
-                        .clamp(0.0, _scrollController.position.maxScrollExtent);
-                _scrollController.jumpTo(target);
+                  _scrollController.hasClients) {
+                // 触控板横滚给 dx、普通滚轮给 dy（含 Shift+滚轮转横滚的驱动层转换），
+                // 有 dx 优先用 dx。
+                final delta = pointerSignal.scrollDelta.dx != 0
+                    ? pointerSignal.scrollDelta.dx
+                    : pointerSignal.scrollDelta.dy;
+                if (delta == 0) return;
+                final target = (_scrollController.offset + delta).clamp(
+                  0.0,
+                  _scrollController.position.maxScrollExtent,
+                );
+                _scrollController.animateTo(
+                  target,
+                  duration: const Duration(milliseconds: 120),
+                  curve: Curves.easeOutCubic,
+                );
               }
             },
             child: SingleChildScrollView(
               controller: _scrollController,
               scrollDirection: Axis.horizontal,
               physics: const ClampingScrollPhysics(),
-              child: tabRow,
+              child: tabsRow,
             ),
           );
+        } else {
+          scrollArea = Align(alignment: Alignment.centerLeft, child: tabsRow);
         }
 
-        return Align(alignment: Alignment.centerLeft, child: tabRow);
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(child: scrollArea),
+            newButton,
+          ],
+        );
       },
     );
   }
@@ -280,6 +324,7 @@ class _DesktopTabItem extends StatefulWidget {
 class _DesktopTabItemState extends State<_DesktopTabItem>
     with SingleTickerProviderStateMixin {
   bool _isHovered = false;
+  bool _closeArmed = false;
   bool _shouldBlink = false;
   _TabBlinkMode _blinkMode = _TabBlinkMode.completed;
   late final AnimationController _blinkController;
@@ -301,6 +346,17 @@ class _DesktopTabItemState extends State<_DesktopTabItem>
     );
 
     // 严格遵循移动端响应式监听：生成状态改变/完成时闪烁
+    _subscribeRunState();
+
+    if (widget.runState.isGenerating.value) {
+      _startBlinking(_TabBlinkMode.completed);
+    }
+    _checkRequiresActionBlink();
+  }
+
+  /// 订阅当前 [widget.runState] 的三个 Rx。订阅与对象实例绑定，
+  /// 与 [_unsubscribeRunState] 配对（见 didUpdateWidget 的实例替换处理）。
+  void _subscribeRunState() {
     _generatingWorker = ever(widget.runState.isGenerating, (bool generating) {
       if (!generating && !widget.isActive) {
         if (widget.runState.wasAborted.value) {
@@ -322,11 +378,15 @@ class _DesktopTabItemState extends State<_DesktopTabItem>
     _pendingQuestionWorker = ever(widget.runState.hasPendingQuestion, (_) {
       _checkRequiresActionBlink();
     });
+  }
 
-    if (widget.runState.isGenerating.value) {
-      _startBlinking(_TabBlinkMode.completed);
-    }
-    _checkRequiresActionBlink();
+  void _unsubscribeRunState() {
+    _generatingWorker?.dispose();
+    _generatingWorker = null;
+    _permissionWorker?.dispose();
+    _permissionWorker = null;
+    _pendingQuestionWorker?.dispose();
+    _pendingQuestionWorker = null;
   }
 
   void _checkRequiresActionBlink() {
@@ -342,6 +402,18 @@ class _DesktopTabItemState extends State<_DesktopTabItem>
   @override
   void didUpdateWidget(covariant _DesktopTabItem oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // runState 实例被替换（关闭后重开同 id 会 getOrCreate 新实例，
+    // 而 ValueKey(id) 会复用本 State）：旧 Worker 仍监听已丢弃的旧 Rx，
+    // 必须重建订阅，否则新状态不再闪烁且泄漏旧监听。
+    if (!identical(oldWidget.runState, widget.runState)) {
+      _unsubscribeRunState();
+      _stopBlinking();
+      _subscribeRunState();
+      if (widget.runState.isGenerating.value) {
+        _startBlinking(_TabBlinkMode.completed);
+      }
+      _checkRequiresActionBlink();
+    }
     if (widget.isActive &&
         _shouldBlink &&
         !widget.runState.isGenerating.value) {
@@ -450,15 +522,14 @@ class _DesktopTabItemState extends State<_DesktopTabItem>
       ],
     );
 
-    if (!mounted || selected == null) return;
+    if (!context.mounted || !mounted || selected == null) return;
 
     if (selected == 'close') {
       widget.sessionCtrl.closeSession(widget.id);
     } else if (selected == 'close_others') {
-      final others = widget.openedIds.where((id) => id != widget.id).toList();
-      for (final id in others) {
-        widget.sessionCtrl.closeSession(id);
-      }
+      // 批量关闭：一次持久化 + 一次 active 纠正，避免逐个 close 导致
+      // active 来回跳转与 N 次写库。
+      widget.sessionCtrl.closeOtherSessions(widget.id);
     } else if (selected == 'close_all') {
       widget.sessionCtrl.clearAllOpenedSessions();
     }
@@ -495,16 +566,18 @@ class _DesktopTabItemState extends State<_DesktopTabItem>
       }
 
       final isGlowing = _shouldBlink || isGenerating;
-      final showClose = _isHovered && !widget.isCompact;
+      // 压缩态仅 active 保留 X（对齐 Chrome），其余靠右键/中键关闭。
+      final showClose = _isHovered && (!widget.isCompact || widget.isActive);
 
-      // 悬停完整提示
+      // 悬停完整提示（状态后缀走国际化）
       String tooltipText = sessionTitle;
       if (hasError) {
-        tooltipText = '$sessionTitle (Error)';
+        tooltipText = '$sessionTitle (${LocaleKeys.tabStatusError.tr})';
       } else if (isGenerating) {
-        tooltipText = '$sessionTitle (Generating...)';
+        tooltipText = '$sessionTitle (${LocaleKeys.tabStatusGenerating.tr})';
       } else if (requiresAction) {
-        tooltipText = '$sessionTitle (Action Required)';
+        tooltipText =
+            '$sessionTitle (${LocaleKeys.tabStatusActionRequired.tr})';
       }
 
       return Tooltip(
@@ -516,12 +589,18 @@ class _DesktopTabItemState extends State<_DesktopTabItem>
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
+              // 关闭 X 的 tapDown 会先置位 _closeArmed（内外层都会收到 tapDown，
+              // 但 tap 的竞技场只产生一个胜者）；若外层意外胜出则吞掉这次点击，
+              // 避免“点 X 先选中再关闭”导致 active 闪切 + 多余持久化。
+              if (_closeArmed) {
+                _closeArmed = false;
+                return;
+              }
               // 点击切换时停止闪烁，严格遵循移动端 onTap 行为
               _stopBlinking();
               widget.onTap();
             },
-            onSecondaryTapDown: (details) =>
-                _showContextMenu(context, details),
+            onSecondaryTapDown: (details) => _showContextMenu(context, details),
             onTertiaryTapDown: (_) =>
                 widget.sessionCtrl.closeSession(widget.id),
             child: Stack(
@@ -601,9 +680,12 @@ class _DesktopTabItemState extends State<_DesktopTabItem>
                               if (showClose)
                                 GestureDetector(
                                   behavior: HitTestBehavior.opaque,
-                                  onTap: () => widget.sessionCtrl.closeSession(
-                                    widget.id,
-                                  ),
+                                  onTapDown: (_) => _closeArmed = true,
+                                  onTapCancel: () => _closeArmed = false,
+                                  onTap: () {
+                                    _closeArmed = false;
+                                    widget.sessionCtrl.closeSession(widget.id);
+                                  },
                                   child: Container(
                                     padding: const EdgeInsets.all(2.0),
                                     decoration: BoxDecoration(

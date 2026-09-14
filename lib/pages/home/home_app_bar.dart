@@ -57,15 +57,16 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
       toolbarHeight: isTablet ? 40.0 : kToolbarHeight,
       centerTitle: isDesktop ? false : true,
       titleSpacing: isDesktop ? 6.0 : NavigationToolbar.kMiddleSpacing,
-      title: opened.isNotEmpty
-          ? (isDesktop
-                ? DesktopSessionTabBar(
-                    openedIds: opened,
-                    activeId: sessionId,
-                    sessionCtrl: sessionCtrl,
-                    onSelectSession: onSelectSession,
-                  )
-                : SessionIndicator(
+      title: isDesktop
+          // 桌面端恒显示页签栏（含 [+] 常驻入口），空态时滚动区为空、仅 [+]。
+          ? DesktopSessionTabBar(
+              openedIds: opened,
+              activeId: sessionId,
+              sessionCtrl: sessionCtrl,
+              onSelectSession: onSelectSession,
+            )
+          : (opened.isNotEmpty
+                ? SessionIndicator(
                     openedIds: opened,
                     activeId: sessionId,
                     onTap: (id) {
@@ -75,14 +76,14 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
                         sessionCtrl.selectSession(id);
                       }
                     },
-                  ))
-          : Text(
-              title,
-              style: TextStyle(
-                fontSize: isDesktop ? 14 : 16,
-                fontWeight: isDesktop ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
+                  )
+                : Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.normal,
+                    ),
+                  )),
       automaticallyImplyLeading: showMenu,
       actions: [
         if (showToolPanelToggle && !isDesktop)

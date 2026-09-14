@@ -1146,6 +1146,21 @@ class SessionController extends GetxController with WidgetsBindingObserver {
     _releaseSessionState(id);
   }
 
+  /// 批量关闭除 [keepId] 外的所有已打开页签（桌面端右键“关闭其他”）：
+  /// 与逐个调用 [closeSession] 等价，但只做一次 active 纠正与一次持久化，
+  /// 避免 active 来回跳转与 N 次写库。运行时状态释放仍逐个走
+  /// [_releaseSessionState]（含挂起权限跳过守卫）。
+  void closeOtherSessions(String keepId) {
+    final others = openedSessionIds.where((id) => id != keepId).toList();
+    if (others.isEmpty) return;
+    openedSessionIds.removeWhere((id) => id != keepId);
+    if (activeSessionId.value != keepId) activeSessionId.value = keepId;
+    _persistOpenedIds();
+    for (final id in others) {
+      _releaseSessionState(id);
+    }
+  }
+
   /// 释放已关闭页签的运行时状态（F2 定版方案）：
   /// - 普通会话：整个 remove，重开时 `hasLoadedHistory` 随新状态重置、走
   ///   正常懒加载；

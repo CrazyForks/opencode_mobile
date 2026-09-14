@@ -86,6 +86,20 @@ class _SessionDotState extends State<_SessionDot>
       CurvedAnimation(parent: _blinkController, curve: Curves.easeInOut),
     );
 
+    _subscribeRunState();
+
+    if (widget.runState.isGenerating.value) {
+      _startBlinking(_BlinkMode.completed);
+    }
+    // 初始评估：dot 创建时 hasPendingQuestion/pendingPermission 可能已为
+    // true（SSE 先于 UI 预填充），此后布尔不再翻转就没有事件可触发闪烁，
+    // 后台页签的 requiresAction 光晕会缺失。与上方 isGenerating 初始检查同型。
+    _checkRequiresActionBlink();
+  }
+
+  /// 订阅当前 [widget.runState] 的三个 Rx。订阅与对象实例绑定，
+  /// 与 [_unsubscribeRunState] 配对（见 didUpdateWidget 的实例替换处理）。
+  void _subscribeRunState() {
     _generatingWorker = ever(widget.runState.isGenerating, (bool generating) {
       if (!generating && !widget.isActive) {
         if (widget.runState.wasAborted.value) {
@@ -109,14 +123,15 @@ class _SessionDotState extends State<_SessionDot>
     _pendingQuestionWorker = ever(widget.runState.hasPendingQuestion, (_) {
       _checkRequiresActionBlink();
     });
+  }
 
-    if (widget.runState.isGenerating.value) {
-      _startBlinking(_BlinkMode.completed);
-    }
-    // 初始评估：dot 创建时 hasPendingQuestion/pendingPermission 可能已为
-    // true（SSE 先于 UI 预填充），此后布尔不再翻转就没有事件可触发闪烁，
-    // 后台页签的 requiresAction 光晕会缺失。与上方 isGenerating 初始检查同型。
-    _checkRequiresActionBlink();
+  void _unsubscribeRunState() {
+    _generatingWorker?.dispose();
+    _generatingWorker = null;
+    _permissionWorker?.dispose();
+    _permissionWorker = null;
+    _pendingQuestionWorker?.dispose();
+    _pendingQuestionWorker = null;
   }
 
   void _checkRequiresActionBlink() {
@@ -135,6 +150,18 @@ class _SessionDotState extends State<_SessionDot>
   @override
   void didUpdateWidget(covariant _SessionDot oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // runState 实例被替换（关闭后重开同 id 会 getOrCreate 新实例，
+    // 而 ValueKey(id) 会复用本 State）：旧 Worker 仍监听已丢弃的旧 Rx，
+    // 必须重建订阅，否则新状态不再闪烁且泄漏旧监听。
+    if (!identical(oldWidget.runState, widget.runState)) {
+      _unsubscribeRunState();
+      _stopBlinking();
+      _subscribeRunState();
+      if (widget.runState.isGenerating.value) {
+        _startBlinking(_BlinkMode.completed);
+      }
+      _checkRequiresActionBlink();
+    }
     if (widget.isActive &&
         _shouldBlink &&
         !widget.runState.isGenerating.value) {

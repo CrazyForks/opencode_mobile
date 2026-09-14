@@ -63,6 +63,9 @@ class LocaleKeys {
   static const recentProjects = "titlebar_recent_projects";
   static const tabCloseOthers = "tab_close_others";
   static const tabCloseAll = "tab_close_all";
+  static const tabStatusError = "tab_status_error";
+  static const tabStatusGenerating = "tab_status_generating";
+  static const tabStatusActionRequired = "tab_status_action_required";
 
   // ── Command Palette ──
   static const cmdNewSession = "cmd_new_session";
@@ -1375,6 +1378,9 @@ class Messages extends Translations {
     LocaleKeys.recentProjects: '最近打开',
     LocaleKeys.tabCloseOthers: '关闭其他页签',
     LocaleKeys.tabCloseAll: '关闭所有页签',
+    LocaleKeys.tabStatusError: '出错',
+    LocaleKeys.tabStatusGenerating: '生成中',
+    LocaleKeys.tabStatusActionRequired: '待处理',
 
     // ── Command Palette ──
     LocaleKeys.cmdNewSession: '新建会话',
@@ -2685,6 +2691,9 @@ class Messages extends Translations {
     LocaleKeys.recentProjects: 'Recent Projects',
     LocaleKeys.tabCloseOthers: 'Close Other Tabs',
     LocaleKeys.tabCloseAll: 'Close All Tabs',
+    LocaleKeys.tabStatusError: 'Error',
+    LocaleKeys.tabStatusGenerating: 'Generating...',
+    LocaleKeys.tabStatusActionRequired: 'Action Required',
 
     // ── Command Palette ──
     LocaleKeys.cmdNewSession: 'New Session',

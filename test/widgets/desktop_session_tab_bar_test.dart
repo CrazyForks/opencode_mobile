@@ -236,7 +236,10 @@ void main() {
       expect(find.byIcon(CupertinoIcons.trash), findsOneWidget);
 
       // 验证右键菜单在鼠标点击位置附近弹出，没有过大的向下间隙（不再下移 32px 标题栏高度）
-      final closeItemFinder = find.widgetWithText(PopupMenuItem<String>, LocaleKeys.close.tr);
+      final closeItemFinder = find.widgetWithText(
+        PopupMenuItem<String>,
+        LocaleKeys.close.tr,
+      );
       final menuTop = tester.getTopLeft(closeItemFinder).dy;
       final tabBottom = tester.getBottomLeft(secondTab).dy;
       // 菜单顶部紧贴点击位置 / 页签位置（相距在 15px 内），而不是距离 32px 以上
@@ -290,4 +293,157 @@ void main() {
       }
     },
   );
+
+  testWidgets('DesktopSessionTabBar keeps [+] visible when no tabs are open', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final sessionCtrl = Get.put(SessionController());
+
+      await tester.pumpWidget(
+        GetMaterialApp(
+          home: Scaffold(
+            appBar: HomeAppBar(
+              sessionCtrl: sessionCtrl,
+              opened: const [],
+              sessionId: '',
+              title: 'Test Session',
+              isTablet: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // 空态页签栏整体仍在（而非 SizedBox.shrink），[+] 常驻可点
+      expect(find.byType(DesktopSessionTabBar), findsOneWidget);
+      expect(find.byIcon(CupertinoIcons.plus), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('DesktopSessionTabBar pins [+] outside the scroll content', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      tester.view.physicalSize = const Size(600, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final sessionCtrl = Get.put(SessionController());
+      final manyIds = List.generate(20, (i) => 'sess_$i');
+      sessionCtrl.openedSessionIds.assignAll(manyIds);
+
+      await tester.pumpWidget(
+        GetMaterialApp(
+          home: Scaffold(
+            appBar: HomeAppBar(
+              sessionCtrl: sessionCtrl,
+              opened: manyIds,
+              sessionId: 'sess_0',
+              title: 'Test Session',
+              isTablet: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 20 个 tab 在 600px 下必然进入滚动分支
+      expect(find.byType(SingleChildScrollView), findsOneWidget);
+      expect(find.byIcon(CupertinoIcons.plus), findsOneWidget);
+      // [+] 不在滚动内容里
+      expect(
+        find.descendant(
+          of: find.byType(SingleChildScrollView),
+          matching: find.byIcon(CupertinoIcons.plus),
+        ),
+        findsNothing,
+      );
+
+      // 滚动页签后 [+] 的全局横坐标不动
+      final plusDxBefore = tester
+          .getCenter(find.byIcon(CupertinoIcons.plus))
+          .dx;
+      await tester.drag(
+        find.text(sessionCtrl.getSessionName('sess_0')),
+        const Offset(-200, 0),
+      );
+      await tester.pumpAndSettle();
+      final plusDxAfter = tester.getCenter(find.byIcon(CupertinoIcons.plus)).dx;
+      expect((plusDxAfter - plusDxBefore).abs(), lessThan(1.0));
+      expect(tester.takeException(), isNull);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('DesktopSessionTabBar close button does not select the tab', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final sessionCtrl = Get.put(SessionController());
+      sessionCtrl.openedSessionIds.assignAll(['s1', 's2']);
+
+      String? selectedId;
+
+      await tester.pumpWidget(
+        GetMaterialApp(
+          home: Scaffold(
+            appBar: HomeAppBar(
+              sessionCtrl: sessionCtrl,
+              opened: const ['s1', 's2'],
+              sessionId: 's1',
+              title: 'Test Session',
+              isTablet: true,
+              onSelectSession: (id) => selectedId = id,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // 悬停第二个页签露出 X
+      final tabFinder = find.byKey(const ValueKey('s2'));
+      final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await gesture.addPointer(location: Offset.zero);
+      await gesture.moveTo(tester.getCenter(tabFinder));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(CupertinoIcons.xmark), findsOneWidget);
+
+      // 点 X：只关闭、不触发选中
+      await tester.tap(find.byIcon(CupertinoIcons.xmark));
+      await tester.pump();
+
+      expect(selectedId, isNull);
+      expect(sessionCtrl.openedSessionIds.contains('s2'), isFalse);
+      expect(tester.takeException(), isNull);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  test('closeOtherSessions keeps only the chosen tab and fixes active', () {
+    final sessionCtrl = Get.put(SessionController());
+    sessionCtrl.openedSessionIds.assignAll(['a', 'b', 'c']);
+    sessionCtrl.activeSessionId.value = 'a';
+
+    sessionCtrl.closeOtherSessions('b');
+
+    expect(sessionCtrl.openedSessionIds.toList(), equals(['b']));
+    expect(sessionCtrl.activeSessionId.value, equals('b'));
+  });
 }
