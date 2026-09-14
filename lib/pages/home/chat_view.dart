@@ -620,6 +620,7 @@ class _TimelineScrollbarState extends State<_TimelineScrollbar> {
                 if (totalRange <= 0) return const SizedBox.shrink();
 
                 final double trackHeight = viewportHeight - 4;
+                if (trackHeight < 36) return const SizedBox.shrink();
 
                 double thumbHeight;
                 double thumbScrollableRange;

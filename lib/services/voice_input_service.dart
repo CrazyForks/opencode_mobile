@@ -182,14 +182,19 @@ class VoiceInputService {
       // Create a fresh token for each attempt
       cancelToken = CancelToken();
       try {
-        await downloadModel(
+        final ok = await downloadModel(
           onProgress: (count, total) {
             receivedRx.value = count;
             totalRx.value = total;
           },
           cancelToken: cancelToken,
         );
-        closeDialog(true);
+        if (ok) {
+          closeDialog(true);
+        } else {
+          isDownloadingRx.value = false;
+          errorRx.value = LocaleKeys.voiceDownloadFailed.tr;
+        }
       } catch (e) {
         if (cancelToken.isCancelled) {
           closeDialog(false);

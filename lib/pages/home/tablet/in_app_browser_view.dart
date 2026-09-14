@@ -661,7 +661,10 @@ class _BrowserTabViewState extends State<_BrowserTabView>
       _initWindowsEnv();
     } else {
       if (startUrl.isNotEmpty) {
-        _controller = _createController()..loadRequest(Uri.parse(startUrl));
+        final uri = Uri.tryParse(startUrl);
+        if (uri != null) {
+          _controller = _createController()..loadRequest(uri);
+        }
       }
     }
   }

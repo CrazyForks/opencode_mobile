@@ -432,41 +432,47 @@ class _ImageViewerState extends State<ImageViewer> {
                     _scaleNotifier.value = scale;
                   }
                 },
-                child: _bytes != null
+                child: _decodedImage != null
                     ? Center(
-                        child: Image.memory(
-                          _bytes!,
+                        child: RawImage(
+                          image: _decodedImage,
                           fit: BoxFit.contain,
-                          gaplessPlayback: true,
-                          errorBuilder: (context, error, stackTrace) => Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.broken_image_outlined,
-                                  size: 48,
-                                  color: theme.colorScheme.error,
-                                ),
-                                const SizedBox(height: 12),
-                                const Text(
-                                  'Image decode failed',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '该图片无法解码（可能是不支持的格式）',
-                                  textAlign: TextAlign.center,
-                                  style: theme.textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ),
                         ),
                       )
-                    : const SizedBox.shrink(),
+                    : _decodeFailed
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.broken_image_outlined,
+                                    size: 48,
+                                    color: theme.colorScheme.error,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'Image decode failed',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '该图片无法解码（可能是不支持的格式）',
+                                    textAlign: TextAlign.center,
+                                    style: theme.textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : _bytes != null
+                            ? const Center(
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const SizedBox.shrink(),
               ),
             ),
           ),
