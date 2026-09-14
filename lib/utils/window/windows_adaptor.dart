@@ -6,6 +6,11 @@ import '../layout_utils.dart';
 /// Adapter class for configuring desktop window dimensions, window options,
 /// restoration bounds (maximize states), and centering parameters using `window_manager`.
 class WindowsAdapter {
+  /// 持久化窗口坐标的合法区间（Win32 虚拟屏坐标合理域）。
+  /// 仅用于识别损坏数据，必须足够宽以容纳多显示器负坐标。
+  static const double _minWindowCoord = -32000;
+  static const double _maxWindowCoord = 32000;
+
   static Future<void> setSize() async {
     if (!isDesktop) return;
 
@@ -45,18 +50,28 @@ class WindowsAdapter {
         if (safeSize != null) {
           await windowManager.setSize(safeSize);
         }
+        bool positionRestored = false;
         if (windowPosition.length >= 2) {
           final x = double.tryParse(windowPosition[0]);
           final y = double.tryParse(windowPosition[1]);
-          // Prevent window from flying off-screen
+          // 校验只用于拦截明显损坏的持久化数据，不能收窄合法范围：
+          // 多显示器下副屏位于主屏左侧 / 上方时坐标为负（1920 宽副屏在左
+          // 时 x 可达 -1920），过严的下限会把合法位置误判为非法。
+          // 这里取 Win32 虚拟屏坐标的合理域。
           if (x != null &&
               y != null &&
-              x >= -100 &&
-              y >= -100 &&
-              x < 10000 &&
-              y < 10000) {
+              x >= _minWindowCoord &&
+              y >= _minWindowCoord &&
+              x <= _maxWindowCoord &&
+              y <= _maxWindowCoord) {
             await windowManager.setPosition(Offset(x, y));
+            positionRestored = true;
           }
+        }
+        // 位置缺失或损坏时兜底居中，避免既不恢复也不居中、
+        // 窗口落到 OS 默认位置。
+        if (!positionRestored) {
+          await windowManager.center();
         }
       }
       await windowManager.show();

@@ -16,6 +16,7 @@ migrate_working_dir/
 .codegraph
 .superpowers
 .zcode
+.codebuddy
 
 # IntelliJ related
 *.iml

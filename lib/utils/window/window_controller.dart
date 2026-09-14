@@ -29,16 +29,6 @@ class TitleBarController extends GetxController with WindowListener {
     super.onClose();
   }
 
-  /// Called when a title bar drag ends. If the window was maximized, it
-  /// restores to normal state (unmaximizes) as a result of the drag.
-  Future<void> stopDragging(DragEndDetails details) async {
-    if (isMax) {
-      isMax = false;
-      await Global.settings.setIsMax(false);
-      update();
-    }
-  }
-
   /// Minimizes the application window.
   Future<void> pressMini() async {
     await windowManager.minimize();

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
 import 'window_controller.dart';
-import '../../api/sidecar_manager.dart';
 import '../../init.dart';
 
 class WindowsButtons extends StatelessWidget {
@@ -91,10 +90,11 @@ class WindowsButtons extends StatelessWidget {
           const SizedBox(width: 4),
           // Close Button
           IconButton(
+            // 只发关闭信号：setPreventClose(true) 会让原生先派发 close
+            // 事件再拦截，清理统一由 TitleBarController.onWindowClose
+            // 单点负责（内有 _sidecarStopped 幂等守卫），使系统 X /
+            // Alt+F4 / 自绘按钮三条路径行为完全一致。
             onPressed: () async {
-              try {
-                await SidecarManager.instance.stop();
-              } catch (_) {}
               await windowManager.close();
             },
             iconSize: 15,

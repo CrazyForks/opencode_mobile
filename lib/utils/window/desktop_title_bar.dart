@@ -32,10 +32,18 @@ class DesktopTitleBar extends StatelessWidget implements PreferredSizeWidget {
       color: theme.scaffoldBackgroundColor,
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
+        // 最大化状态下必须先真实还原再拖拽：window_manager 的
+        // startDragging 原生实现是 SendMessage(WM_SYSCOMMAND, SC_MOVE)，
+        // 而 Win32 在窗口最大化时会忽略 SC_MOVE —— 窗口既不移动也不还原，
+        // 只会留下"手势已结束但窗口仍最大化"的状态错位。
+        // 行为与 Chrome / VS Code 标题栏一致；isMax 的同步交由
+        // onWindowMaximize / onWindowUnmaximize 回调按窗口真实状态完成。
         onPanStart: (details) async {
+          if (await windowManager.isMaximized()) {
+            await controller.pressUnMax();
+          }
           await windowManager.startDragging();
         },
-        onPanEnd: controller.stopDragging,
         onDoubleTap: () async {
           if (controller.isMax) {
             await controller.pressUnMax();

@@ -35,8 +35,12 @@ class DesktopSessionTabBar extends StatefulWidget {
 }
 
 class _DesktopSessionTabBarState extends State<DesktopSessionTabBar> {
+  static const double _newBtnWidth = 30.0;
+  static const double _newBtnGap = 8.0;
+  static const double _tabMargin = 2.0;
+  static const double _minTabWidth = 44.0; // 极限压缩下限
+
   final ScrollController _scrollController = ScrollController();
-  List<double> _cachedWidths = [];
 
   @override
   void initState() {
@@ -58,24 +62,93 @@ class _DesktopSessionTabBarState extends State<DesktopSessionTabBar> {
     super.dispose();
   }
 
+  /// 纯函数：按可用宽度计算每个页签的最终宽度，无任何副作用。
+  /// build 与 [_scrollToActive] 共用同一套逻辑，避免在 build 阶段
+  /// 写入实例字段（build 必须保持无副作用）。
+  List<double> _computeTabWidths(double availableWidth) {
+    final count = widget.openedIds.length;
+    if (count == 0) return const <double>[];
+
+    // 1. 测量每个 Tab 的自然内容宽度（自适应标题长度，短标题紧凑，长标题适度舒展）
+    final naturalWidths = <double>[];
+    for (final id in widget.openedIds) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: widget.sessionCtrl.getSessionName(id),
+          style: const TextStyle(fontSize: 12.0, fontWeight: FontWeight.w600),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout();
+      // 内容宽度 = 文本宽度 + 左右内边距 + 悬停关闭按钮预留空间
+      naturalWidths.add((painter.width + 36.0).clamp(64.0, 200.0));
+    }
+
+    final totalNaturalWidth =
+        naturalWidths.fold<double>(0.0, (sum, w) => sum + w) +
+        (count - 1) * _tabMargin;
+
+    // 2. 根据可用宽度进行计算：未撑满时按自然长度展示，撑满后按溢出量等比压缩
+    final finalWidths = List<double>.filled(count, 0.0);
+
+    if (totalNaturalWidth <= availableWidth) {
+      // 未撑满：100% 保持自适应标题自然长度
+      for (var i = 0; i < count; i++) {
+        finalWidths[i] = naturalWidths[i];
+      }
+      return finalWidths;
+    }
+
+    // 撑满了可用宽度：长标题按比例优先平滑收缩
+    final overflow = totalNaturalWidth - availableWidth;
+    final compressible = naturalWidths
+        .map((w) => (w - _minTabWidth).clamp(0.0, double.infinity))
+        .toList();
+    final totalCompressible = compressible.fold<double>(
+      0.0,
+      (sum, c) => sum + c,
+    );
+
+    if (totalCompressible > 0 && totalCompressible >= overflow) {
+      for (var i = 0; i < count; i++) {
+        final reduction = overflow * (compressible[i] / totalCompressible);
+        finalWidths[i] = (naturalWidths[i] - reduction).clamp(
+          _minTabWidth,
+          naturalWidths[i],
+        );
+      }
+    } else {
+      // 连所有 Tab 全部压缩至 minTabWidth 都放不下时，保持 minTabWidth 并允许平滑横向滚动
+      for (var i = 0; i < count; i++) {
+        finalWidths[i] = _minTabWidth;
+      }
+    }
+    return finalWidths;
+  }
+
   void _scrollToActive() {
     if (!mounted || !_scrollController.hasClients) return;
     final index = widget.openedIds.indexOf(widget.activeId);
-    if (index < 0 || index >= _cachedWidths.length) return;
+    if (index < 0) return;
 
     final maxExtent = _scrollController.position.maxScrollExtent;
     if (maxExtent <= 0) return;
 
-    const tabMargin = 2.0;
+    // 滚动视口宽度即 LayoutBuilder 的 maxWidth，可据此还原出 build 时
+    // 使用的 availableWidth，从而按需重算宽度而无需跨帧缓存。
+    final viewportDimension = _scrollController.position.viewportDimension;
+    final availableWidth = (viewportDimension - _newBtnWidth - _newBtnGap)
+        .clamp(0.0, double.infinity);
+    final widths = _computeTabWidths(availableWidth);
+    if (index >= widths.length) return;
+
     double offsetBefore = 0.0;
     for (var i = 0; i < index; i++) {
-      offsetBefore += _cachedWidths[i] + tabMargin;
+      offsetBefore += widths[i] + _tabMargin;
     }
 
-    final tabWidth = _cachedWidths[index];
-    final viewportDimension = _scrollController.position.viewportDimension;
     final targetOffset =
-        offsetBefore + (tabWidth / 2) - (viewportDimension / 2);
+        offsetBefore + (widths[index] / 2) - (viewportDimension / 2);
 
     _scrollController.animateTo(
       targetOffset.clamp(0.0, maxExtent),
@@ -90,83 +163,18 @@ class _DesktopSessionTabBarState extends State<DesktopSessionTabBar> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        const newBtnWidth = 30.0;
-        final maxBarWidth = constraints.maxWidth;
-        final availableWidth = (maxBarWidth - newBtnWidth - 8).clamp(
-          0.0,
-          double.infinity,
-        );
+        final availableWidth =
+            (constraints.maxWidth - _newBtnWidth - _newBtnGap).clamp(
+              0.0,
+              double.infinity,
+            );
         final count = widget.openedIds.length;
 
-        // 1. 测量每个 Tab 的自然内容宽度（自适应标题长度，短标题紧凑，长标题适度舒展）
-        final titles = widget.openedIds
-            .map((id) => widget.sessionCtrl.getSessionName(id))
-            .toList();
-        final naturalWidths = <double>[];
-        for (final title in titles) {
-          final painter = TextPainter(
-            text: TextSpan(
-              text: title,
-              style: const TextStyle(
-                fontSize: 12.0,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            textDirection: TextDirection.ltr,
-            maxLines: 1,
-          )..layout();
-          // 内容宽度 = 文本宽度 + 左右内边距 + 悬停关闭按钮预留空间
-          final natural = (painter.width + 36.0).clamp(64.0, 200.0);
-          naturalWidths.add(natural);
-        }
-
-        const tabMargin = 2.0;
-        final totalNaturalWidth =
-            naturalWidths.fold<double>(0.0, (sum, w) => sum + w) +
-            (count > 0 ? (count - 1) * tabMargin : 0.0);
-
-        // 2. 根据可用宽度进行计算：未撑满时按自然长度展示，撑满后按溢出量等比压缩
-        final List<double> finalWidths = List<double>.filled(count, 0.0);
-        const minTabWidth = 44.0; // 极限压缩下限
-
-        if (totalNaturalWidth <= availableWidth) {
-          // 未撑满：100% 保持自适应标题自然长度
-          for (var i = 0; i < count; i++) {
-            finalWidths[i] = naturalWidths[i];
-          }
-        } else {
-          // 撑满了可用宽度：长标题按比例优先平滑收缩
-          final overflow = totalNaturalWidth - availableWidth;
-          final compressible = naturalWidths
-              .map((w) => (w - minTabWidth).clamp(0.0, double.infinity))
-              .toList();
-          final totalCompressible = compressible.fold<double>(
-            0.0,
-            (sum, c) => sum + c,
-          );
-
-          if (totalCompressible > 0 && totalCompressible >= overflow) {
-            for (var i = 0; i < count; i++) {
-              final reduction =
-                  overflow * (compressible[i] / totalCompressible);
-              finalWidths[i] = (naturalWidths[i] - reduction).clamp(
-                minTabWidth,
-                naturalWidths[i],
-              );
-            }
-          } else {
-            // 连所有 Tab 全部压缩至 minTabWidth 都放不下时，保持 minTabWidth 并允许平滑横向滚动
-            for (var i = 0; i < count; i++) {
-              finalWidths[i] = minTabWidth;
-            }
-          }
-        }
-
-        _cachedWidths = finalWidths;
+        final finalWidths = _computeTabWidths(availableWidth);
 
         final totalFinalWidth =
             finalWidths.fold<double>(0.0, (sum, w) => sum + w) +
-            (count > 0 ? (count - 1) * tabMargin : 0.0);
+            (count > 0 ? (count - 1) * _tabMargin : 0.0);
         final isScrollable = totalFinalWidth > availableWidth;
 
         final tabs = <Widget>[];
