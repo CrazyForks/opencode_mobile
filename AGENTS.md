@@ -37,7 +37,7 @@ Flutter（Android / iOS / Windows / Web）客户端，通过 Basic Auth 连接�
 ## 行为约定（容易踩坑）
 
 - **已打开会话页签持久化（`openedSessionIds`）**：**只在用户主动操作时写库**；启动/切项目（`onProjectChanged`）仅清内存，禁止调用 `_persistOpenedIds()`，否则重启丢页签
-- **桌面窗口关闭与优雅退出**：桌面端通过 `windowManager.setPreventClose(true)` 拦截关闭，必须由 `TitleBarController.onWindowClose` 先执行 `await SidecarManager.instance.stop()` 优雅清理后端子进程与连接，再 `windowManager.destroy()` 退出，避免产生孤儿后台进程
+- **桌面窗口关闭与优雅退出**：桌面端通过 `windowManager.setPreventClose(true)` 拦截关闭，`TitleBarController.onWindowClose` 按序执行：`SessionController.disconnectSse()` 断 SSE → 本地 dispose 所有 PTY 会话（只关 socket，不调远端 DELETE）→ `OpenCodeClient/SidecarManager.closeForShutdown()` 强制 RST 连接池 → `await SidecarManager.instance.stop()` → `setPreventClose(false)` 后 `windowManager.close()` 走原生有序销毁。**禁止调 `windowManager.destroy()`（= PostQuitMessage）：窗口会在引擎半析构后才 DestroyWindow，顶层消息走进已释放引擎状态必现 APPCRASH（flutter_windows.dll 空指针读，WER 写 dump 数秒表现为关闭"无响应"）**；`close()` 二次派发的 `onWindowClose` 由 `_closing` 守卫直接放行
 - **桌面输入框（`PromptInput`）行为规范**：
   - **Enter 发送**：默认 Enter 发送，Shift+Enter 换行；必须增加 IME 拼音输入法合成态检测（`composing.isValid && !composing.isCollapsed`），打字拼音上屏时严禁误触发发送
   - **剪贴板图像粘贴**：Ctrl+V（或 Cmd+V）优先通过 `super_clipboard` 探测并提取 PNG/JPEG 图片附加为附件（单次最多 5 张）；无图片或读取失败时无缝降级为原生文本粘贴

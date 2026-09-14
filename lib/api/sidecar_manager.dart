@@ -98,6 +98,14 @@ class SidecarManager {
     _setPhase('disconnected');
   }
 
+  /// 进程退出专用：强制关闭健康检查 Dio 的连接池（RST，不等待服务端 FIN）。
+  /// 与 [stop] 不同，调用后 [updateConnection] 不可再用，仅供退出路径调用。
+  void closeForShutdown() {
+    try {
+      _healthDio.close(force: true);
+    } catch (_) {}
+  }
+
   void _setPhase(String newPhase) {
     _phase = newPhase;
   }

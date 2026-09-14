@@ -183,4 +183,15 @@ class OpenCodeClient {
     }
     return dio.delete(path, data: data, options: opts);
   }
+
+  /// 进程退出专用：强制关闭底层 HTTP 连接池（RST，不等待服务端 FIN）。
+  ///
+  /// SSE 是永不结束的事件流 + 连接池 keep-alive 连接在退出时若走优雅关闭，
+  /// 会在半关闭连接上卡数秒（窗口"无响应"）。调用后本实例不可再用，
+  /// 仅供退出路径（[TitleBarController.onWindowClose]）调用。
+  void closeForShutdown() {
+    try {
+      dio.close(force: true);
+    } catch (_) {}
+  }
 }

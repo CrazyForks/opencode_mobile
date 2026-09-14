@@ -2,6 +2,9 @@ import 'package:flutter/cupertino.dart';
 import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
 import '../app_logger.dart';
+import '../../api/opencode_client.dart';
+import '../../controllers/pty_controller.dart';
+import '../../controllers/session_controller.dart';
 import '../../init.dart';
 import '../../api/sidecar_manager.dart';
 
@@ -16,6 +19,8 @@ class TitleBarController extends GetxController with WindowListener {
   bool onTop = Global.settings.onTop;
   bool _restoringSize = false; // 标记正在恢复尺寸，跳过 onWindowResized 保存
   bool _sidecarStopped = false; // 保证 stop 只执行一次
+  bool _closing = false; // 关闭流程重入守卫：setPreventClose(false) 后
+  // 的 close() 会再次触发 onWindowClose，必须直接放行走原生销毁。
 
   @override
   void onInit() {
@@ -78,17 +83,64 @@ class TitleBarController extends GetxController with WindowListener {
   }
 
   /// Intercepts window close to cleanup sidecar / connections.
+  ///
+  /// 关闭路径说明（实测结论）：
+  /// - 不要调 `destroy()`（= PostQuitMessage）：窗口在引擎半析构后才
+  ///   DestroyWindow，顶层消息走进已释放的引擎状态必现 APPCRASH
+  ///   （flutter_windows.dll 空指针读，WER 写 dump 数秒表现为"无响应"）。
+  /// - 正确顺序：本地释放长连接 → 取消关闭拦截 → `close()` 走原生
+  ///   WM_CLOSE → DestroyWindow 有序销毁（引擎尚存活）。
   @override
   void onWindowClose() async {
+    // setPreventClose(false) 后的 close() 会再次派发本事件，重入必须放行。
+    if (_closing) return;
+    _closing = true;
     if (!_sidecarStopped) {
       _sidecarStopped = true;
+      try {
+        if (Get.isRegistered<SessionController>()) {
+          Get.find<SessionController>().disconnectSse();
+        }
+      } catch (e) {
+        AppLogger.w('onWindowClose disconnect SSE failed: $e');
+      }
+      try {
+        if (Get.isRegistered<PtyController>()) {
+          for (final s in Get.find<PtyController>().sessions.toList()) {
+            try {
+              s.dispose();
+            } catch (_) {}
+          }
+        }
+      } catch (e) {
+        AppLogger.w('onWindowClose dispose PTY failed: $e');
+      }
+      // Dio 连接池强制 RST：SSE 流 + keep-alive 连接若走优雅关闭，
+      // teardown 会等服务端 FIN（实测约 5s）。必须在 stop/close 之前。
+      try {
+        OpenCodeClient().closeForShutdown();
+        SidecarManager.instance.closeForShutdown();
+      } catch (e) {
+        AppLogger.w('onWindowClose abort sockets failed: $e');
+      }
       try {
         await SidecarManager.instance.stop();
       } catch (e) {
         AppLogger.e('WindowController onWindowClose stop sidecar error', e);
       }
     }
-    await windowManager.destroy();
+    // 取消拦截后走原生有序销毁；失败才回退到 destroy()。
+    try {
+      await windowManager.setPreventClose(false);
+      await windowManager.close();
+    } catch (e) {
+      AppLogger.e('onWindowClose native close failed, destroying', e);
+      try {
+        await windowManager.destroy();
+      } catch (e2) {
+        AppLogger.e('onWindowClose destroy failed', e2);
+      }
+    }
     super.onWindowClose();
   }
 
