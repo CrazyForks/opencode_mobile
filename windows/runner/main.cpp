@@ -36,19 +36,19 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!allow_multi) {
     mutex = ::CreateMutexW(nullptr, FALSE, L"OpenCodeApp_SingleInstance_Mutex");
     if (mutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
-      // Another instance is already running — try to activate it.
+      // Another instance is already running - try to activate it.
       HWND existing = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"opencode_app");
       if (existing != nullptr) {
         ::ShowWindow(existing, SW_RESTORE);
         ::SetForegroundWindow(existing);
       }
-      // If window not found (race: old instance exiting), don't block — just exit
+      // If window not found (race: old instance exiting), don't block - just exit
       // and let the user retry.
       ::CloseHandle(mutex);
       ::CoUninitialize();
       return EXIT_SUCCESS;
     }
-    // mutex handle kept open — auto-released by kernel on process exit / crash.
+    // mutex handle kept open - auto-released by kernel on process exit / crash.
   }
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));

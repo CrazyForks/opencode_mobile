@@ -7,7 +7,6 @@ import '../../controllers/project_controller.dart';
 import '../../controllers/tablet_tool_controller.dart';
 import '../../controllers/vcs_controller.dart';
 import '../../routes.dart';
-import '../../utils/diff_paths.dart';
 import '../../utils/layout_utils.dart';
 import '../../utils/snackbar_utils.dart';
 import '../../utils/translations.dart';
@@ -465,16 +464,7 @@ class _VcsBranchSheetState extends State<VcsBranchSheet> {
                               ? rawPath.substring(0, rawPath.lastIndexOf('\\'))
                               : '');
 
-                    final isSelected = diffPathsEqual(
-                      _toolCtrl.reviewSelectedFile.value,
-                      rawPath,
-                    );
-
                     return ListTile(
-                      selected: isSelected,
-                      selectedTileColor: theme.colorScheme.primary.withValues(
-                        alpha: 0.1,
-                      ),
                       dense: true,
                       visualDensity: VisualDensity.compact,
                       shape: RoundedRectangleBorder(
@@ -494,9 +484,7 @@ class _VcsBranchSheetState extends State<VcsBranchSheet> {
                               ? theme.colorScheme.onSurface.withValues(
                                   alpha: 0.5,
                                 )
-                              : (isSelected
-                                    ? theme.colorScheme.primary
-                                    : theme.colorScheme.onSurface),
+                              : theme.colorScheme.onSurface,
                           decoration: file.isDeleted
                               ? TextDecoration.lineThrough
                               : null,
@@ -545,11 +533,9 @@ class _VcsBranchSheetState extends State<VcsBranchSheet> {
                           Icon(
                             Icons.chevron_right_rounded,
                             size: 16,
-                            color: isSelected
-                                ? theme.colorScheme.primary
-                                : theme.colorScheme.onSurfaceVariant.withValues(
-                                    alpha: 0.5,
-                                  ),
+                            color: theme.colorScheme.onSurfaceVariant.withValues(
+                              alpha: 0.5,
+                            ),
                           ),
                         ],
                       ),
