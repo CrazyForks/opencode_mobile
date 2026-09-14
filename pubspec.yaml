@@ -63,5 +63,4 @@ flutter:
     - assets/sensevoice/tokens.txt
     - assets/sensevoice/am.mvn
     - assets/vad_stream.onnx
-    - onnx/libonnxruntime.so
     - assets/browser/html-to-image.min.js

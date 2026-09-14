@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 /// Flutter 端日志工具类
 ///
-/// 与 Rust 端共用同一日志目录，文件名使用 "flutter" 前缀以区分
+/// 日志存放于 ApplicationSupport/logs 目录（Rust 端不落盘日志文件，仅 android_logger/eprintln）
 class AppLogger {
   static AppLogger? _instance;
   static Logger? _logger;
@@ -40,10 +40,10 @@ class AppLogger {
         );
   }
 
-  /// 获取移动端日志保存目录
+  /// 获取日志保存目录（ApplicationSupport/logs）
   static Future<String> getLogDir() async {
-    final appDocDir = await getApplicationDocumentsDirectory();
-    final logDir = Directory(path.join(appDocDir.path, 'logs'));
+    final appSupportDir = await getApplicationSupportDirectory();
+    final logDir = Directory(path.join(appSupportDir.path, 'logs'));
     if (!await logDir.exists()) {
       await logDir.create(recursive: true);
     }

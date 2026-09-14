@@ -22,12 +22,42 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
 
+  // --- Single-instance protection ---
+  // Skip if --multi-instance is passed (useful for flutter run debugging).
+  bool allow_multi = false;
+  for (const auto& arg : command_line_arguments) {
+    if (arg == "--multi-instance") {
+      allow_multi = true;
+      break;
+    }
+  }
+
+  HANDLE mutex = nullptr;
+  if (!allow_multi) {
+    mutex = ::CreateMutexW(nullptr, FALSE, L"OpenCodeApp_SingleInstance_Mutex");
+    if (mutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+      // Another instance is already running — try to activate it.
+      HWND existing = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"opencode_app");
+      if (existing != nullptr) {
+        ::ShowWindow(existing, SW_RESTORE);
+        ::SetForegroundWindow(existing);
+      }
+      // If window not found (race: old instance exiting), don't block — just exit
+      // and let the user retry.
+      ::CloseHandle(mutex);
+      ::CoUninitialize();
+      return EXIT_SUCCESS;
+    }
+    // mutex handle kept open — auto-released by kernel on process exit / crash.
+  }
+
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"opencode_app", origin, size)) {
+    if (mutex) ::CloseHandle(mutex);
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

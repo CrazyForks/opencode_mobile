@@ -445,15 +445,6 @@ class VoiceInputService {
     await _copyAssetIfNeeded('assets/sensevoice/tokens.txt', vocabFile);
     await _copyAssetIfNeeded('assets/vad_stream.onnx', vadFile);
 
-    if (Platform.isAndroid) {
-      final soFile = File(p.join(dir.path, 'libonnxruntime.so'));
-      debugPrint('VoiceInputService: ensuring libonnxruntime.so asset...');
-      await _copyAssetIfNeeded('onnx/libonnxruntime.so', soFile);
-      debugPrint(
-        'VoiceInputService: libonnxruntime.so ready at ${soFile.path}',
-      );
-    }
-
     return _preparedAssetPaths = {
       'modelPath': modelFile.path,
       'vocabPath': vocabFile.path,
