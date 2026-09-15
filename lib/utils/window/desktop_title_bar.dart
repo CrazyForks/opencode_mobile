@@ -88,33 +88,40 @@ class DesktopTitleBar extends StatelessWidget implements PreferredSizeWidget {
                 ),
               // Draggable middle area
               const Spacer(),
-              // Panel layout toggle button (right panel). Always available:
-              // the panel hosts terminal/browser/review tabs that work
-              // without an active project; hiding it would leave no way
-              // to reopen the panel on desktop (HomeAppBar hides its own).
+              // Panel layout toggle button (right panel). Hidden on splash screen:
+              // the panel hosts terminal/browser/review tabs on desktop Home,
+              // but should not be shown while connecting or on the splash screen.
               if (Get.isRegistered<TabletToolController>())
                 Obx(() {
+                  if (!controller.showToolPanelToggle) {
+                    return const SizedBox.shrink();
+                  }
                   final toolCtrl = Get.find<TabletToolController>();
                   final isVisible = toolCtrl.isVisible.value;
-                  return IconButton(
-                    onPressed: () => toolCtrl.togglePanel(),
-                    iconSize: 15,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 28,
-                      minHeight: 28,
-                    ),
-                    icon: Icon(
-                      CupertinoIcons.sidebar_right,
-                      color: isVisible
-                          ? theme.colorScheme.primary
-                          : theme.textTheme.bodyMedium?.color?.withValues(
-                              alpha: 0.7,
-                            ),
-                    ),
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        onPressed: () => toolCtrl.togglePanel(),
+                        iconSize: 15,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 28,
+                          minHeight: 28,
+                        ),
+                        icon: Icon(
+                          CupertinoIcons.sidebar_right,
+                          color: isVisible
+                              ? theme.colorScheme.primary
+                              : theme.textTheme.bodyMedium?.color?.withValues(
+                                  alpha: 0.7,
+                                ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                    ],
                   );
                 }),
-              const SizedBox(width: 2),
               // Window buttons on the far right
               WindowsButtons(controller: controller),
             ],

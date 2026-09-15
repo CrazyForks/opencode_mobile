@@ -7,6 +7,7 @@ import '../../controllers/pty_controller.dart';
 import '../../controllers/session_controller.dart';
 import '../../init.dart';
 import '../../api/sidecar_manager.dart';
+import '../../routes.dart';
 
 /// Controls the application window's title bar interactions: minimize,
 /// maximize/restore, always-on-top, and drag state. Also handles graceful
@@ -21,6 +22,21 @@ class TitleBarController extends GetxController with WindowListener {
   bool _sidecarStopped = false; // 保证 stop 只执行一次
   bool _closing = false; // 关闭流程重入守卫：setPreventClose(false) 后
   // 的 close() 会再次触发 onWindowClose，必须直接放行走原生销毁。
+
+  /// Current top-level route (tracked via routingCallback in app.dart).
+  final currentRoute = RxString(
+    Get.currentRoute.isNotEmpty ? Get.currentRoute : AppRoutes.splash,
+  );
+
+  /// Whether the tool panel toggle button should be displayed in the title bar.
+  /// Not displayed on the splash screen.
+  bool get showToolPanelToggle => currentRoute.value != AppRoutes.splash;
+
+  void updateRoute(String? route) {
+    if (route != null && route.isNotEmpty && currentRoute.value != route) {
+      currentRoute.value = route;
+    }
+  }
 
   @override
   void onInit() {

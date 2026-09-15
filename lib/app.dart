@@ -11,6 +11,7 @@ import 'utils/layout_utils.dart';
 import 'utils/snackbar_utils.dart';
 import 'utils/translations.dart';
 import 'utils/window/desktop_title_bar.dart';
+import 'utils/window/window_controller.dart';
 
 class OpenCodeApp extends StatefulWidget {
   const OpenCodeApp({super.key});
@@ -63,6 +64,13 @@ class _OpenCodeAppState extends State<OpenCodeApp> {
       initialRoute: AppRoutes.splash,
       getPages: AppRoutes.pages,
       initialBinding: GlobalBinding(),
+      routingCallback: (routing) {
+        if (routing != null &&
+            isDesktop &&
+            Get.isRegistered<TitleBarController>()) {
+          Get.find<TitleBarController>().updateRoute(routing.current);
+        }
+      },
       theme: light,
       darkTheme: dark,
       themeMode: isLight ? ThemeMode.light : ThemeMode.dark,
