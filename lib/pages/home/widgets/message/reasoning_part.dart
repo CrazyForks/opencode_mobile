@@ -4,7 +4,6 @@ import '../../../../controllers/session_controller.dart';
 import '../../../../utils/translations.dart';
 import '../../../../api/models/message.dart';
 import '../../../../widgets/detail_bottom_sheet.dart';
-import 'text_shimmer.dart';
 
 /// Compact reasoning header. Full text opens in a BottomSheet (not in main tree).
 class ReasoningPartWidget extends StatelessWidget {
@@ -59,27 +58,16 @@ class ReasoningPartWidget extends StatelessWidget {
                 color: theme.colorScheme.primary.withValues(alpha: 0.8),
               ),
               const SizedBox(width: 8),
-              stillThinking && text.isEmpty
-                  ? TextShimmer(
-                      text: 'Thinking...',
-                      active: true,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: theme.textTheme.bodySmall?.color?.withValues(
-                          alpha: 0.6,
-                        ),
-                      ),
-                    )
-                  : Text(
-                      label,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 11.5,
-                        color: theme.textTheme.bodySmall?.color?.withValues(
-                          alpha: 0.6,
-                        ),
-                      ),
-                    ),
+              Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11.5,
+                  color: theme.textTheme.bodySmall?.color?.withValues(
+                    alpha: 0.6,
+                  ),
+                ),
+              ),
               const SizedBox(width: 4),
               Icon(
                 Icons.open_in_new,
