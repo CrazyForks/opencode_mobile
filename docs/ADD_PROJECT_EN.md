@@ -13,7 +13,7 @@ This guide explains how to add new local projects or import existing GitHub proj
 If you want to create a brand new local project from scratch:
 
 1. **Create Project Directory**  
-   Create a project folder manually, or use AI tools to generate the basic project structure.
+   Manually create the project folder over SSH.
 
 2. **Initialize Git Repository**  
    Navigate to the project root directory and execute the following command to make an initial commit (required for tracking changes):
