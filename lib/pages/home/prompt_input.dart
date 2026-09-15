@@ -26,6 +26,9 @@ import '../../widgets/voice_floating_overlay.dart';
 import 'tablet/in_app_browser_view.dart';
 import '../../controllers/vcs_controller.dart';
 import 'vcs_branch_sheet.dart';
+import '../../services/mention_search_service.dart';
+import '../../utils/mention_rank.dart';
+import 'inline_chip_controller.dart';
 
 class PromptInput extends StatefulWidget {
   final String sessionId;
@@ -37,10 +40,21 @@ class PromptInput extends StatefulWidget {
 }
 
 class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
-  final TextEditingController _textController = TextEditingController();
+  late final InlineChipTextEditingController _textController;
   final FocusNode _focusNode = FocusNode();
   bool _hasText = false;
   bool _wasKeyboardOpen = false;
+
+  // ── @ 路径提及菜单 ──
+  final _layerLink = LayerLink();
+  OverlayEntry? _suggestionOverlayEntry;
+  List<MentionRankRow> _matched = [];
+  String _currentQuery = '';
+  int _triggerIndex = -1;
+  int _selectedIndex = 0;
+  Timer? _suggestDebounce;
+  final _mentionService = MentionSearchService();
+  final _suggestionScrollController = ScrollController();
 
   SessionController get _ctrl => Get.find<SessionController>();
 
@@ -54,14 +68,31 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _textController = InlineChipTextEditingController(
+      onChipTap: (relativePath) {
+        if (Get.isRegistered<TabletToolController>()) {
+          Get.find<TabletToolController>().openFile(
+            relativePath,
+            basenameOf(relativePath),
+          );
+        }
+      },
+    );
     _focusNode.onKeyEvent = _onKeyEvent;
+    _focusNode.addListener(() {
+      if (!_focusNode.hasFocus) {
+        _hideOverlay();
+      }
+    });
     WidgetsBinding.instance.addObserver(this);
     _textController.addListener(() {
       // 值不变不 setState：IME 组合、光标移动等每次输入事件都会进 listener，
       // 无守卫时整块输入区（工具栈/附件/操作栏）被无谓重建。
       final hasText = _textController.text.trim().isNotEmpty;
-      if (hasText == _hasText) return;
-      setState(() => _hasText = hasText);
+      if (hasText != _hasText) {
+        setState(() => _hasText = hasText);
+      }
+      _scheduleMentionScan();
     });
     // 本会话成为激活会话时，把语音输入目标指向本输入框，
     // 保证连续语音模式在切换 session 后输出到当前会话。
@@ -78,7 +109,19 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
   }
 
   @override
+  void didUpdateWidget(PromptInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sessionId != widget.sessionId) {
+      _hideOverlay();
+    }
+  }
+
+  @override
   void dispose() {
+    _suggestDebounce?.cancel();
+    _hideOverlay();
+    _mentionService.dispose();
+    _suggestionScrollController.dispose();
     if (_voiceCtrl.autoSendHandler == _handleAutoSend) {
       _voiceCtrl.autoSendHandler = null;
     }
@@ -111,70 +154,101 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
   }
 
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
-    // 桌面端快捷键（Enter 发送 / Ctrl+V 贴图 / Esc 闭环）仅桌面生效：
-    // 移动端保留系统原生行为，外接物理键盘也不拦截。
-    if (!isDesktop) return KeyEventResult.ignored;
-    if (event is KeyDownEvent) {
-      // 1. Ctrl+V (Windows/Linux) 或 Cmd+V (macOS)：优先尝试粘贴剪贴板二进制图片
-      if (event.logicalKey == LogicalKeyboardKey.keyV &&
-          (HardwareKeyboard.instance.isControlPressed ||
-              HardwareKeyboard.instance.isMetaPressed)) {
-        _handlePaste();
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    // @ 菜单打开时优先处理导航与选择（桌面端与外接键盘均生效）
+    if (_suggestionOverlayEntry != null && _matched.isNotEmpty) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        _moveSelection(1);
         return KeyEventResult.handled;
       }
-
-      // 2. Enter 键发送（支持主键盘 Enter 与小键盘 NumPad Enter，排除 Shift+Enter 换行）
-      final isEnter =
-          event.logicalKey == LogicalKeyboardKey.enter ||
-          event.logicalKey == LogicalKeyboardKey.numpadEnter;
-      if (isEnter && !HardwareKeyboard.instance.isShiftPressed) {
-        // IME 输入法合成态防护：打拼音时无论是空格还是 Enter 上屏，绝不触发误发送
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        _moveSelection(-1);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+          event.logicalKey == LogicalKeyboardKey.tab) {
         final composing = _textController.value.composing;
         if (composing.isValid && !composing.isCollapsed) {
           return KeyEventResult.ignored;
         }
-
-        final state = _ctrl.stateOf(widget.sessionId);
-        final hasPendingPermission =
-            _ctrl.sessionIdWithPendingPermission(widget.sessionId) != null;
-        final inputEnabled =
-            widget.sessionId.isNotEmpty && !hasPendingPermission;
-        final canSend =
-            _hasText ||
-            state.attachedFiles.isNotEmpty ||
-            state.attachedImages.isNotEmpty;
-
-        if (inputEnabled && canSend) {
-          _handleSend();
-          return KeyEventResult.handled;
-        }
-        // 若空消息或不可发送，吞掉 Enter 避免插入无谓换行
+        _selectSuggestion(_selectedIndex);
         return KeyEventResult.handled;
       }
-
-      // 3. Esc 键闭环：优先关闭自定义 Overlay 弹窗/路由弹窗，其次中止生成；空闲时失焦。
-      // 有 Dialog / BottomSheet / PopupMenuRoute 盖在上面时不处理，把 Esc 让给上层关闭。
       if (event.logicalKey == LogicalKeyboardKey.escape) {
-        final dismissPopup = _activePromptPopupDismiss;
-        if (dismissPopup != null) {
-          dismissPopup();
-          return KeyEventResult.handled;
-        }
-        // showMenu 等 Material 路由弹窗不在 Get 统计内：顶层路由不是本页时让给它。
-        if (ModalRoute.of(context)?.isCurrent == false) {
-          return KeyEventResult.ignored;
-        }
-        if (Get.isDialogOpen == true || Get.isBottomSheetOpen == true) {
-          return KeyEventResult.ignored;
-        }
-        final state = _ctrl.stateOf(widget.sessionId);
-        if (state.isGenerating.value) {
-          _handleAbort();
-          return KeyEventResult.handled;
-        } else if (_focusNode.hasFocus) {
-          _focusNode.unfocus();
-          return KeyEventResult.handled;
-        }
+        _hideOverlay();
+        return KeyEventResult.handled;
+      }
+    }
+
+    // 桌面端快捷键（Enter 发送 / Ctrl+V 贴图 / Esc 闭环）仅桌面生效：
+    // 移动端保留系统原生行为，外接物理键盘也不拦截。
+    if (!isDesktop) return KeyEventResult.ignored;
+
+    // 1. Ctrl+V (Windows/Linux) 或 Cmd+V (macOS)：优先尝试粘贴剪贴板二进制图片
+    if (event.logicalKey == LogicalKeyboardKey.keyV &&
+        (HardwareKeyboard.instance.isControlPressed ||
+            HardwareKeyboard.instance.isMetaPressed)) {
+      _handlePaste();
+      return KeyEventResult.handled;
+    }
+
+    // 2. Enter 键发送（支持主键盘 Enter 与小键盘 NumPad Enter，排除 Shift+Enter 换行）
+    final isEnter =
+        event.logicalKey == LogicalKeyboardKey.enter ||
+        event.logicalKey == LogicalKeyboardKey.numpadEnter;
+    if (isEnter && !HardwareKeyboard.instance.isShiftPressed) {
+      // IME 输入法合成态防护：打拼音时无论是空格还是 Enter 上屏，绝不触发误发送
+      final composing = _textController.value.composing;
+      if (composing.isValid && !composing.isCollapsed) {
+        return KeyEventResult.ignored;
+      }
+
+      final state = _ctrl.stateOf(widget.sessionId);
+      final hasPendingPermission =
+          _ctrl.sessionIdWithPendingPermission(widget.sessionId) != null;
+      final inputEnabled =
+          widget.sessionId.isNotEmpty && !hasPendingPermission;
+      final canSend =
+          _hasText ||
+          state.attachedFiles.isNotEmpty ||
+          state.attachedImages.isNotEmpty;
+
+      if (inputEnabled && canSend) {
+        _handleSend();
+        return KeyEventResult.handled;
+      }
+      // 若空消息或不可发送，吞掉 Enter 避免插入无谓换行
+      return KeyEventResult.handled;
+    }
+
+    // 3. Esc 键闭环：优先关闭自定义 Overlay 弹窗/路由弹窗，其次中止生成；空闲时失焦。
+    // 有 Dialog / BottomSheet / PopupMenuRoute 盖在上面时不处理，把 Esc 让给上层关闭。
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      if (_suggestionOverlayEntry != null) {
+        _hideOverlay();
+        return KeyEventResult.handled;
+      }
+      final dismissPopup = _activePromptPopupDismiss;
+      if (dismissPopup != null) {
+        dismissPopup();
+        return KeyEventResult.handled;
+      }
+      // showMenu 等 Material 路由弹窗不在 Get 统计内：顶层路由不是本页时让给它。
+      if (ModalRoute.of(context)?.isCurrent == false) {
+        return KeyEventResult.ignored;
+      }
+      if (Get.isDialogOpen == true || Get.isBottomSheetOpen == true) {
+        return KeyEventResult.ignored;
+      }
+      final state = _ctrl.stateOf(widget.sessionId);
+      if (state.isGenerating.value) {
+        _handleAbort();
+        return KeyEventResult.handled;
+      } else if (_focusNode.hasFocus) {
+        _focusNode.unfocus();
+        return KeyEventResult.handled;
       }
     }
     return KeyEventResult.ignored;
@@ -261,9 +335,25 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
   Future<void> _submitMessage(String text, {bool clearInput = true}) async {
     final t = text.trim();
     final state = _ctrl.stateOf(widget.sessionId);
+    // 从文本中提取通过 @ 提及的文件或目录
+    final mentionRegex = RegExp(r'@([^\s@]+)');
+    for (final m in mentionRegex.allMatches(text)) {
+      // 排除邮箱等非独立提及（行首或前面是空白/标点符号才算提及）
+      if (m.start > 0) {
+        final prevChar = text[m.start - 1];
+        if (!RegExp(r'[\s(\[{"\x27\n]').hasMatch(prevChar)) {
+          continue;
+        }
+      }
+      final mentionPath = m.group(1)!;
+      if (!state.attachedFiles.contains(mentionPath)) {
+        state.attachedFiles.add(mentionPath);
+      }
+    }
     final files = state.attachedFiles.toList();
     final images = state.attachedImages.toList();
     if (t.isEmpty && files.isEmpty && images.isEmpty) return;
+    _hideOverlay();
     _focusNode.unfocus();
     // 先按原时序清空输入与附件（乐观上屏），再等待发送结果；
     // 失败时在下方回填，不在 POST 窗口保留输入以免重复提交。
@@ -405,6 +495,252 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
     }
   }
 
+  // ── @ 路径提及菜单 ──
+
+  void _scheduleMentionScan() {
+    _suggestDebounce?.cancel();
+    _suggestDebounce = Timer(const Duration(milliseconds: 150), () {
+      if (mounted) _scanMention();
+    });
+  }
+
+  void _scanMention() async {
+    final text = _textController.text;
+    final selection = _textController.selection;
+    if (!selection.isCollapsed || selection.start < 0) {
+      _hideOverlay();
+      return;
+    }
+    final cursor = selection.start;
+    var at = -1;
+    for (var i = cursor - 1; i >= 0; i--) {
+      final char = text[i];
+      if (char == '\n') break;
+      if (char == '@') {
+        if (i == 0 || RegExp(r'\s').hasMatch(text[i - 1])) {
+          at = i;
+          break;
+        }
+      }
+    }
+    if (at == -1) {
+      _hideOverlay();
+      return;
+    }
+    final query = text.substring(at + 1, cursor);
+    if (RegExp(r'\s').hasMatch(query)) {
+      _hideOverlay();
+      return;
+    }
+    _triggerIndex = at;
+    _currentQuery = query;
+    final results = await _mentionService.search(query);
+    if (!mounted || _currentQuery != query) return;
+    _matched = results;
+    _selectedIndex = 0;
+    if (_matched.isEmpty) {
+      _hideOverlay();
+      return;
+    }
+    if (_suggestionOverlayEntry == null) {
+      final overlay = Overlay.maybeOf(context);
+      if (overlay == null) return;
+      _suggestionOverlayEntry = OverlayEntry(
+        builder: (_) => _buildSuggestionOverlay(),
+      );
+      overlay.insert(_suggestionOverlayEntry!);
+    } else {
+      _suggestionOverlayEntry?.markNeedsBuild();
+    }
+  }
+
+  void _moveSelection(int delta) {
+    if (_matched.isEmpty) return;
+    setState(() {
+      _selectedIndex = (_selectedIndex + delta + _matched.length) % _matched.length;
+    });
+    _suggestionOverlayEntry?.markNeedsBuild();
+    if (_suggestionScrollController.hasClients) {
+      const itemHeight = 44.0;
+      final targetOffset = (_selectedIndex * itemHeight).clamp(
+        0.0,
+        _suggestionScrollController.position.maxScrollExtent,
+      );
+      _suggestionScrollController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 80),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  void _selectSuggestion(int index) {
+    if (index < 0 || index >= _matched.length) return;
+    final path = _matched[index].path;
+    final text = _textController.text;
+    final before = text.substring(0, _triggerIndex);
+    final after = text.substring(_textController.selection.start);
+    final insertion = '@$path ';
+    final newOffset = _triggerIndex + insertion.length;
+    _textController.value = TextEditingValue(
+      text: '$before$insertion$after',
+      selection: TextSelection.collapsed(offset: newOffset),
+    );
+    _textController.registerChip(_triggerIndex, newOffset);
+    _hideOverlay();
+  }
+
+  void _hideOverlay() {
+    if (_suggestionOverlayEntry != null) {
+      if (_suggestionOverlayEntry!.mounted) {
+        _suggestionOverlayEntry!.remove();
+      }
+      _suggestionOverlayEntry = null;
+    }
+    _matched.clear();
+    _currentQuery = '';
+    _triggerIndex = -1;
+  }
+
+  Widget _buildSuggestionOverlay() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final total = _matched.length;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final overlayWidth = (screenWidth - 32).clamp(260.0, 480.0);
+
+    return Positioned(
+      width: overlayWidth,
+      child: CompositedTransformFollower(
+        link: _layerLink,
+        showWhenUnlinked: false,
+        targetAnchor: Alignment.topLeft,
+        followerAnchor: Alignment.bottomLeft,
+        offset: const Offset(0, -8),
+        child: Material(
+          elevation: 8,
+          color: isDark ? const Color(0xFF1E1F29) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: isDark ? const Color(0xFF2D2F3F) : const Color(0xFFE2E8F0),
+              width: 1,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 260),
+            child: ListView.builder(
+              controller: _suggestionScrollController,
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              itemCount: total,
+              itemBuilder: (context, index) {
+                final isSelected = index == _selectedIndex;
+                final match = _matched[index];
+                final rawBase = basenameOf(match.path);
+                final name = match.isDir ? '$rawBase/' : rawBase;
+                return _buildSuggestionItem(
+                  icon: match.isDir
+                      ? CupertinoIcons.folder
+                      : CupertinoIcons.doc_text,
+                  title: name,
+                  subtitle: match.path,
+                  isSelected: isSelected,
+                  onTap: () => _selectSuggestion(index),
+                  indices: match.baseIndices,
+                  isDark: isDark,
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuggestionItem({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool isSelected,
+    required VoidCallback onTap,
+    required List<int> indices,
+    required bool isDark,
+  }) {
+    final spans = <TextSpan>[];
+    if (indices.isEmpty) {
+      spans.add(TextSpan(text: title));
+    } else {
+      final indexSet = indices.toSet();
+      for (var i = 0; i < title.length; i++) {
+        final char = title[i];
+        final isMatched = indexSet.contains(i);
+        spans.add(
+          TextSpan(
+            text: char,
+            style: TextStyle(
+              fontWeight: isMatched ? FontWeight.bold : FontWeight.normal,
+              color: isMatched
+                  ? const Color(0xFF3B82F6)
+                  : (isDark ? Colors.white70 : Colors.black87),
+            ),
+          ),
+        );
+      }
+    }
+
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        color: isSelected
+            ? (isDark ? const Color(0xFF2D2F3F) : const Color(0xFFF1F5F9))
+            : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isDark ? Colors.white60 : Colors.black54,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  RichText(
+                    text: TextSpan(
+                      children: spans,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontFamily: 'monospace',
+                        color: isDark ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white38 : Colors.black45,
+                      fontFamily: 'monospace',
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -488,100 +824,103 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
                 ),
               ],
             ),
-            Container(
-              decoration: BoxDecoration(
-                color: bg,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: theme.colorScheme.outline.withValues(
-                    alpha: isDark ? 0.2 : 0.12,
+            CompositedTransformTarget(
+              link: _layerLink,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: theme.colorScheme.outline.withValues(
+                      alpha: isDark ? 0.2 : 0.12,
+                    ),
+                    width: 1,
                   ),
-                  width: 1,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? 0.15 : 0.04),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.15 : 0.04),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: _textController,
-                    focusNode: _focusNode,
-                    minLines: isDesktop ? 2 : 1,
-                    maxLines: isDesktop ? 8 : 4,
-                    enabled: inputEnabled,
-                    keyboardType: TextInputType.multiline,
-                    textInputAction: TextInputAction.newline,
-                    decoration: InputDecoration(
-                      hintText: !hasSession
-                          ? 'Select a session'
-                          : hasPendingPermission
-                          ? LocaleKeys.chatConfirmPermissionsFirst.tr
-                          : isWorking
-                          ? 'Generating...'
-                          : 'Type a message...',
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      disabledBorder: InputBorder.none,
-                      filled: false,
-                      contentPadding: EdgeInsets.fromLTRB(
-                        10,
-                        isDesktop ? 10 : 8,
-                        10,
-                        isDesktop ? 10 : 8,
+                padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: _textController,
+                      focusNode: _focusNode,
+                      minLines: isDesktop ? 2 : 1,
+                      maxLines: isDesktop ? 8 : 4,
+                      enabled: inputEnabled,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.newline,
+                      decoration: InputDecoration(
+                        hintText: !hasSession
+                            ? 'Select a session'
+                            : hasPendingPermission
+                            ? LocaleKeys.chatConfirmPermissionsFirst.tr
+                            : isWorking
+                            ? 'Generating...'
+                            : 'Type a message...',
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
+                        filled: false,
+                        contentPadding: EdgeInsets.fromLTRB(
+                          10,
+                          isDesktop ? 10 : 8,
+                          10,
+                          isDesktop ? 10 : 8,
+                        ),
+                        isDense: true,
                       ),
-                      isDense: true,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontSize: 14,
+                        height: isDesktop ? 1.5 : null,
+                      ),
                     ),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontSize: 14,
-                      height: isDesktop ? 1.5 : null,
+                    _ActionBar(
+                      hasSession: hasSession,
+                      isGenerating: isWorking,
+                      hasPendingPermission: hasPendingPermission,
+                      canSend:
+                          _hasText ||
+                          state.attachedFiles.isNotEmpty ||
+                          state.attachedImages.isNotEmpty,
+                      model: state.selectedModel.value,
+                      models: models,
+                      thinkingLevel: selectedLevel,
+                      thinkingLevels: levels,
+                      agent: agent,
+                      agents: _ctrl.availableAgents,
+                      selectedModelName: selectedModelName,
+                      onSend: _handleSend,
+                      onAbort: _handleAbort,
+                      onPickImage: _pickImages,
+                      onSelectModel: (m) {
+                        if (widget.sessionId != _ctrl.activeSessionId.value) {
+                          _ctrl.selectSession(widget.sessionId);
+                        }
+                        _ctrl.selectModel(m);
+                      },
+                      onSelectThinkingLevel: (l) {
+                        if (widget.sessionId != _ctrl.activeSessionId.value) {
+                          _ctrl.selectSession(widget.sessionId);
+                        }
+                        _ctrl.selectThinkingLevel(l);
+                      },
+                      onSelectAgent: (a) {
+                        if (widget.sessionId != _ctrl.activeSessionId.value) {
+                          _ctrl.selectSession(widget.sessionId);
+                        }
+                        _ctrl.selectAgent(a);
+                      },
                     ),
-                  ),
-                  _ActionBar(
-                    hasSession: hasSession,
-                    isGenerating: isWorking,
-                    hasPendingPermission: hasPendingPermission,
-                    canSend:
-                        _hasText ||
-                        state.attachedFiles.isNotEmpty ||
-                        state.attachedImages.isNotEmpty,
-                    model: state.selectedModel.value,
-                    models: models,
-                    thinkingLevel: selectedLevel,
-                    thinkingLevels: levels,
-                    agent: agent,
-                    agents: _ctrl.availableAgents,
-                    selectedModelName: selectedModelName,
-                    onSend: _handleSend,
-                    onAbort: _handleAbort,
-                    onPickImage: _pickImages,
-                    onSelectModel: (m) {
-                      if (widget.sessionId != _ctrl.activeSessionId.value) {
-                        _ctrl.selectSession(widget.sessionId);
-                      }
-                      _ctrl.selectModel(m);
-                    },
-                    onSelectThinkingLevel: (l) {
-                      if (widget.sessionId != _ctrl.activeSessionId.value) {
-                        _ctrl.selectSession(widget.sessionId);
-                      }
-                      _ctrl.selectThinkingLevel(l);
-                    },
-                    onSelectAgent: (a) {
-                      if (widget.sessionId != _ctrl.activeSessionId.value) {
-                        _ctrl.selectSession(widget.sessionId);
-                      }
-                      _ctrl.selectAgent(a);
-                    },
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],

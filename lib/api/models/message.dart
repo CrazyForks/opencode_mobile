@@ -201,6 +201,16 @@ class Part {
     return v is String ? v : (v?.toString() ?? '');
   }
 
+  /// Whether this part was auto-expanded by the backend for LLM context
+  /// (e.g. `@`-mentioned file content via the Read tool), not typed by
+  /// the user. Mirrors web `part.synthetic` filtering
+  /// (`packages/app/src/utils/prompt.ts`, `session-ui/.../message-part.tsx`).
+  bool get isSynthetic => raw['synthetic'] == true;
+
+  /// Whether this part is explicitly ignored for display purposes.
+  /// Filtered alongside [isSynthetic] (matches web prompt restore logic).
+  bool get isIgnored => raw['ignored'] == true;
+
   // ── ToolPart accessors ──
 
   /// The name of the tool being called, from `raw['tool']`.
@@ -611,6 +621,25 @@ class MessageModel {
       return buf.toString();
     }
 
+    return '';
+  }
+
+  /// The user-typed prompt text for display in the user bubble.
+  ///
+  /// Returns the first [PartType.text] part that is neither backend-expanded
+  /// ([Part.isSynthetic]) nor [Part.isIgnored], mirroring web
+  /// `UserMessageDisplay` (`session-ui/.../message-part.tsx`: `find(p =>
+  /// p.type === "text" && !p.synthetic)`). Backend file-expansion parts
+  /// (`Called the Read tool...` + file content) are LLM context, not user
+  /// input, and must not render in the user card.
+  /// Returns `''` when there is no user-typed text (e.g. pure attachment
+  /// sends whose only text parts are synthetic expansions).
+  String get userDisplayText {
+    for (final p in parts) {
+      if (p.type == PartType.text && !p.isSynthetic && !p.isIgnored) {
+        return p.text;
+      }
+    }
     return '';
   }
 

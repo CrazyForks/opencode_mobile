@@ -1999,14 +1999,18 @@ class SessionController extends GetxController with WidgetsBindingObserver {
       final partId = _ascendingId('prt');
       final refParts = fileRef.split(' #');
       final filePath = refParts[0];
-      final filename = filePath.split('/').last.split('\\').last;
+      final isDir = filePath.endsWith('/') || filePath.endsWith('\\');
+      final cleanPath = filePath.replaceAll(RegExp(r'[/\\]+$'), '');
+      if (cleanPath.isEmpty) continue;
+      final rawFilename = cleanPath.split('/').last.split('\\').last;
+      final filename = isDir ? '$rawFilename/' : rawFilename;
 
       var lineRange = '';
-      if (refParts.length > 1) {
+      if (refParts.length > 1 && !isDir) {
         lineRange = refParts[1];
       }
 
-      final absolutePath = _toAbsolutePath(filePath);
+      final absolutePath = _toAbsolutePath(cleanPath);
       var queryParams = '';
       if (lineRange.isNotEmpty) {
         final rangeStr = lineRange.startsWith('L')
@@ -2022,11 +2026,16 @@ class SessionController extends GetxController with WidgetsBindingObserver {
         }
       }
 
+      // 路径可能是远程 Linux 绝对路径（/home/...）或 Windows 路径（C:/...），
+      // Uri.file() 默认用当前平台解析，Windows 上会把 Linux 路径拼上盘符，
+      // 因此需显式指定 windows 参数。
+      final isWinPath = RegExp(r'^[a-zA-Z]:[/\\]').hasMatch(absolutePath);
+      final fileUri = Uri.file(absolutePath, windows: isWinPath);
       final filePartRaw = {
         'id': partId,
         'type': 'file',
-        'url': '${Uri.file(absolutePath)}$queryParams',
-        'mime': 'text/plain',
+        'url': '$fileUri$queryParams',
+        'mime': isDir ? 'application/x-directory' : 'text/plain',
         'filename': filename,
         if (lineRange.isNotEmpty) 'lineRange': lineRange,
       };
@@ -2119,14 +2128,17 @@ class SessionController extends GetxController with WidgetsBindingObserver {
   }
 
   /// Resolve workspace-relative paths against active project worktree.
+  ///
+  /// 路径来自远程后端，不能用本地 [File().absolute] 解析——
+  /// Windows 客户端连 Linux 后端时，`File('/home/ubuntu/...').absolute.path`
+  /// 会错误地拼上本地盘符和 CWD，导致路径完全无效。
+  /// 统一用纯字符串拼接，正斜杠归一化。
   String _toAbsolutePath(String path) {
     final normalized = path.replaceAll('\\', '/');
     final isAbsolute =
         normalized.startsWith('/') ||
         RegExp(r'^[a-zA-Z]:/').hasMatch(normalized);
-    if (isAbsolute) {
-      return File(path).absolute.path;
-    }
+    if (isAbsolute) return normalized;
     String worktree = '';
     try {
       worktree =
@@ -2135,11 +2147,9 @@ class SessionController extends GetxController with WidgetsBindingObserver {
     if (worktree.isEmpty) {
       worktree = _client.activeDirectory ?? '';
     }
-    if (worktree.isEmpty) return File(path).absolute.path;
-    final joined = worktree.endsWith('/') || worktree.endsWith('\\')
-        ? '$worktree$path'
-        : '$worktree${Platform.pathSeparator}$path';
-    return File(joined).absolute.path;
+    if (worktree.isEmpty) return normalized;
+    final base = worktree.replaceAll('\\', '/');
+    return base.endsWith('/') ? '$base$normalized' : '$base/$normalized';
   }
 
   Future<void> abortGeneration({String? sessionId}) async {

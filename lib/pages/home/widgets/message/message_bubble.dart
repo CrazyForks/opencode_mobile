@@ -370,11 +370,11 @@ class _UserBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textParts = message.parts
-        .where((p) => p.type == PartType.text)
-        .map((p) => p.text)
-        .join('\n');
-    final userPromptText = textParts.isNotEmpty ? textParts : message.content;
+    // User-typed prompt only: backend file-expansion text parts
+    // (synthetic `Called the Read tool...` + file content) are LLM context
+    // and must not render in the user card (web parity: first non-synthetic
+    // text part). Empty => file chips only, no text card.
+    final userPromptText = message.userDisplayText;
 
     final fileParts = message.parts
         .where((p) => p.type == PartType.file && Global.isCardVisible('file'))

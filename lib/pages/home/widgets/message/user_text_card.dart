@@ -191,9 +191,12 @@ class _UserActionBarState extends State<_UserActionBar> {
   bool _reverting = false;
 
   Future<void> _handleCopy() async {
+    // displayText is already the filtered user-typed prompt (synthetic file
+    // expansions excluded). Fall back to userDisplayText, never to raw
+    // content which contains backend-expanded file text.
     final text = widget.displayText.isNotEmpty
         ? widget.displayText
-        : widget.message.content;
+        : widget.message.userDisplayText;
     if (text.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
