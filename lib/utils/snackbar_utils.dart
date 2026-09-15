@@ -54,12 +54,7 @@ class Snack {
   }
 
   /// 主题感知的颜色，避免硬编码 green/red/blue 与品牌色冲突。
-  static ({
-    Color success,
-    Color warning,
-    Color error,
-    Color info,
-  }) _colors() {
+  static ({Color success, Color warning, Color error, Color info}) _colors() {
     final theme = Get.theme;
     final scheme = theme.colorScheme;
     final app = theme.extension<AppThemeColors>() ?? AppThemeColors.dark;
@@ -118,7 +113,9 @@ class Snack {
       duration: duration,
       animationDuration: const Duration(milliseconds: 300),
       isDismissible: true,
-      dismissDirection: isPc ? DismissDirection.horizontal : DismissDirection.up,
+      dismissDirection: isPc
+          ? DismissDirection.horizontal
+          : DismissDirection.up,
       overlayBlur: 0, // 不模糊背景
       overlayColor: Colors.transparent, // 透明遮罩，不阻止点击
       titleText: const SizedBox.shrink(),

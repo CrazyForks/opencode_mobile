@@ -1906,8 +1906,7 @@ Future<T?> _showPopup<T>({
   // 后开的弹窗顶掉先开的：先关旧弹窗（完成其 future 为 null），再挂新弹窗。
   _activePromptPopupDismiss?.call();
   Overlay.of(context).insert(overlayEntry);
-  _activePromptPopupDismiss =
-      () => _closePromptPopup(overlayEntry, completer);
+  _activePromptPopupDismiss = () => _closePromptPopup(overlayEntry, completer);
   return completer.future;
 }
 

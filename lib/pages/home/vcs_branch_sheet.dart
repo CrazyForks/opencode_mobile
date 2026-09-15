@@ -533,9 +533,8 @@ class _VcsBranchSheetState extends State<VcsBranchSheet> {
                           Icon(
                             Icons.chevron_right_rounded,
                             size: 16,
-                            color: theme.colorScheme.onSurfaceVariant.withValues(
-                              alpha: 0.5,
-                            ),
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.5),
                           ),
                         ],
                       ),

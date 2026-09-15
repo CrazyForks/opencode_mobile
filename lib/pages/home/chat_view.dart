@@ -651,120 +651,123 @@ class _TimelineScrollbarState extends State<_TimelineScrollbar> {
                   child: AnimatedOpacity(
                     opacity: scrollbarVisible ? 1.0 : 0.0,
                     duration: const Duration(milliseconds: 200),
-                  child: Stack(
-                    key: _trackKey,
-                    children: [
-                      Positioned.fill(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTapDown: (details) {
-                            final tapY = details.localPosition.dy;
-                            final double relativeTap = (tapY - thumbHeight / 2)
-                                .clamp(0.0, thumbScrollableRange);
-                            final double tapPercentage =
-                                thumbScrollableRange > 0
-                                ? relativeTap / thumbScrollableRange
-                                : 0.0;
-                            final double targetPixels =
-                                minExt + tapPercentage * totalRange;
-                            ctrl.jumpTo(targetPixels.clamp(minExt, maxExt));
-                          },
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: _isHovered
-                                  ? (Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? Colors.white.withValues(alpha: 0.03)
-                                        : Colors.black.withValues(alpha: 0.03))
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        top: thumbTop,
-                        left: 3,
-                        width: 6,
-                        height: thumbHeight,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onVerticalDragStart: (details) {
-                            final RenderBox? trackBox =
-                                _trackKey.currentContext?.findRenderObject()
-                                    as RenderBox?;
-                            if (trackBox != null) {
-                              final localY = trackBox
-                                  .globalToLocal(details.globalPosition)
-                                  .dy;
-
-                              // Snapshot and lock metrics to prevent dynamic layout height adjustments
-                              // during dragging from causing feedback loop jitter.
-                              _dragStartMinExt = minExt;
-                              _dragStartMaxExt = maxExt;
-                              _dragStartThumbHeight = thumbHeight;
-                              _dragStartTotalRange = totalRange;
-                              _dragStartThumbScrollableRange =
-                                  thumbScrollableRange;
-
-                              _dragOffsetFromThumbTop = localY - thumbTop;
-
-                              setState(() {
-                                _isDragging = true;
-                              });
-                            }
-                          },
-                          onVerticalDragEnd: (_) {
-                            setState(() {
-                              _isDragging = false;
-                            });
-                            _showScrollbar();
-                          },
-                          onVerticalDragCancel: () {
-                            setState(() {
-                              _isDragging = false;
-                            });
-                            _showScrollbar();
-                          },
-                          onVerticalDragUpdate: (details) {
-                            if (thumbScrollableRange <= 0) return;
-                            final RenderBox? trackBox =
-                                _trackKey.currentContext?.findRenderObject()
-                                    as RenderBox?;
-                            if (trackBox != null) {
-                              final localY = trackBox
-                                  .globalToLocal(details.globalPosition)
-                                  .dy;
-                              double targetThumbTop =
-                                  localY - _dragOffsetFromThumbTop;
-                              targetThumbTop = targetThumbTop.clamp(
-                                0.0,
-                                thumbScrollableRange,
-                              );
-                              final double percentage =
-                                  targetThumbTop / thumbScrollableRange;
+                    child: Stack(
+                      key: _trackKey,
+                      children: [
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTapDown: (details) {
+                              final tapY = details.localPosition.dy;
+                              final double relativeTap =
+                                  (tapY - thumbHeight / 2).clamp(
+                                    0.0,
+                                    thumbScrollableRange,
+                                  );
+                              final double tapPercentage =
+                                  thumbScrollableRange > 0
+                                  ? relativeTap / thumbScrollableRange
+                                  : 0.0;
                               final double targetPixels =
-                                  minExt + percentage * totalRange;
+                                  minExt + tapPercentage * totalRange;
                               ctrl.jumpTo(targetPixels.clamp(minExt, maxExt));
-                            }
-                          },
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: _isDragging
-                                  ? Theme.of(
-                                      context,
-                                    ).colorScheme.primary.withValues(alpha: 0.8)
-                                  : _isHovered
-                                  ? Theme.of(
-                                      context,
-                                    ).colorScheme.primary.withValues(alpha: 0.5)
-                                  : Colors.grey.withValues(alpha: 0.35),
-                              borderRadius: BorderRadius.circular(3),
+                            },
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: _isHovered
+                                    ? (Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.white.withValues(alpha: 0.03)
+                                          : Colors.black.withValues(
+                                              alpha: 0.03,
+                                            ))
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                        Positioned(
+                          top: thumbTop,
+                          left: 3,
+                          width: 6,
+                          height: thumbHeight,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onVerticalDragStart: (details) {
+                              final RenderBox? trackBox =
+                                  _trackKey.currentContext?.findRenderObject()
+                                      as RenderBox?;
+                              if (trackBox != null) {
+                                final localY = trackBox
+                                    .globalToLocal(details.globalPosition)
+                                    .dy;
+
+                                // Snapshot and lock metrics to prevent dynamic layout height adjustments
+                                // during dragging from causing feedback loop jitter.
+                                _dragStartMinExt = minExt;
+                                _dragStartMaxExt = maxExt;
+                                _dragStartThumbHeight = thumbHeight;
+                                _dragStartTotalRange = totalRange;
+                                _dragStartThumbScrollableRange =
+                                    thumbScrollableRange;
+
+                                _dragOffsetFromThumbTop = localY - thumbTop;
+
+                                setState(() {
+                                  _isDragging = true;
+                                });
+                              }
+                            },
+                            onVerticalDragEnd: (_) {
+                              setState(() {
+                                _isDragging = false;
+                              });
+                              _showScrollbar();
+                            },
+                            onVerticalDragCancel: () {
+                              setState(() {
+                                _isDragging = false;
+                              });
+                              _showScrollbar();
+                            },
+                            onVerticalDragUpdate: (details) {
+                              if (thumbScrollableRange <= 0) return;
+                              final RenderBox? trackBox =
+                                  _trackKey.currentContext?.findRenderObject()
+                                      as RenderBox?;
+                              if (trackBox != null) {
+                                final localY = trackBox
+                                    .globalToLocal(details.globalPosition)
+                                    .dy;
+                                double targetThumbTop =
+                                    localY - _dragOffsetFromThumbTop;
+                                targetThumbTop = targetThumbTop.clamp(
+                                  0.0,
+                                  thumbScrollableRange,
+                                );
+                                final double percentage =
+                                    targetThumbTop / thumbScrollableRange;
+                                final double targetPixels =
+                                    minExt + percentage * totalRange;
+                                ctrl.jumpTo(targetPixels.clamp(minExt, maxExt));
+                              }
+                            },
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: _isDragging
+                                    ? Theme.of(context).colorScheme.primary
+                                          .withValues(alpha: 0.8)
+                                    : _isHovered
+                                    ? Theme.of(context).colorScheme.primary
+                                          .withValues(alpha: 0.5)
+                                    : Colors.grey.withValues(alpha: 0.35),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 );
