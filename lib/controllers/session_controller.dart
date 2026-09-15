@@ -220,6 +220,12 @@ class SessionController extends GetxController with WidgetsBindingObserver {
         _refreshAfterReconnect();
       }
     }
+    if (Get.isRegistered<SettingsController>()) {
+      final settings = Get.find<SettingsController>();
+      if (settings.commands.isEmpty && !settings.isLoadingCommands.value) {
+        settings.fetchCommands();
+      }
+    }
     _connectSse();
   }
 
