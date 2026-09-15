@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import '../../utils/mention_parse.dart';
 import '../../utils/mention_rank.dart';
 
 /// 把输入框草稿里的 `@路径` 渲染成美观交互胶囊的 TextEditingController。
@@ -148,13 +149,27 @@ class InlineChipTextEditingController extends TextEditingController {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     for (final match in regex.allMatches(text)) {
-      // 只有行首或前面是空白/标点符号（如括号、引号）时才视作 @ 提及，避免邮箱（abc@test.com）被误转为胶囊
+      // 边界判定与发送侧共用 mention_parse，避免邮箱误转胶囊
       if (match.start > 0) {
-        final prevChar = text[match.start - 1];
-        if (!RegExp(r'[\s(\[{"\x27\n]').hasMatch(prevChar)) {
+        if (!isMentionBoundary(text[match.start - 1])) {
           continue;
         }
       }
+
+      // 尾标点不进胶囊：`@a.md,` 只渲染 `a.md`
+      var token = stripMentionTrailer(match.group(1)!);
+      // `#` 行号后缀不进胶囊显示
+      final hash = token.indexOf('#');
+      if (hash > 0 &&
+          RegExp(r'^[Ll]?\d+(-\d+)?$').hasMatch(token.substring(hash + 1))) {
+        token = token.substring(0, hash);
+      }
+      if (token.isEmpty) {
+        continue;
+      }
+
+      // 胶囊只覆盖 `@` + 干净路径；尾标点 / `#行号` 留作普通文本，避免零宽对齐错位
+      final chipEnd = match.start + 1 + token.length;
 
       if (match.start > lastIndex) {
         spans.add(
@@ -162,7 +177,7 @@ class InlineChipTextEditingController extends TextEditingController {
         );
       }
 
-      final relativePath = match.group(1)!;
+      final relativePath = token;
       final isDir = relativePath.endsWith('/') || relativePath.endsWith('\\');
       final rawBase = basenameOf(relativePath);
       final filename = isDir ? '$rawBase/' : rawBase;
@@ -219,7 +234,7 @@ class InlineChipTextEditingController extends TextEditingController {
         ),
       );
 
-      final replacedLength = match.end - match.start;
+      final replacedLength = chipEnd - match.start;
       if (replacedLength > 1) {
         spans.add(
           TextSpan(
@@ -229,7 +244,7 @@ class InlineChipTextEditingController extends TextEditingController {
         );
       }
 
-      lastIndex = match.end;
+      lastIndex = chipEnd;
     }
 
     if (lastIndex < text.length) {

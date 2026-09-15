@@ -8,6 +8,31 @@ import '../controllers/tablet_tool_controller.dart';
 import '../utils/app_logger.dart';
 import '../utils/mention_rank.dart';
 
+/// 解析 `GET /find/file` 载荷。
+///
+/// 后端 `findFile` 返回 `string[]`（见
+/// `clone/opencode/packages/opencode/src/server/routes/instance/httpapi/handlers/file.ts:43-60`
+/// 与 `openapi.json`）；此处额外兼容对象形 `{path: ...}`（`GET /file` 的
+/// `FileNode` / 新版 `file.find:{path,type}`），避免 `toString()` 得到
+/// `[object Object]`。
+List<String> parseFindFilePayload(dynamic data) {
+  final rawList = (data is Map && data['data'] is List)
+      ? data['data'] as List
+      : data is List
+      ? data
+      : const [];
+  final out = <String>[];
+  for (final e in rawList) {
+    if (e is String) {
+      if (e.isNotEmpty) out.add(e);
+    } else if (e is Map && e['path'] is String) {
+      final p = e['path'] as String;
+      if (p.isNotEmpty) out.add(p);
+    }
+  }
+  return out;
+}
+
 /// @ 提及候选服务：负责与 OpenCode 后端 `GET /find/file` 交互，并结合本地模糊打分。
 class MentionSearchService {
   final OpenCodeClient _client = OpenCodeClient();
@@ -65,13 +90,7 @@ class MentionSearchService {
         if (seq != _requestSeq) return const [];
 
         if (response.statusCode == 200) {
-          final data = response.data;
-          final rawList = (data is Map && data['data'] is List)
-              ? data['data'] as List
-              : data is List
-              ? data
-              : [];
-          rawEntries = rawList.map((e) => e.toString()).toList();
+          rawEntries = parseFindFilePayload(response.data);
           // 仅缓存非空前缀的结果，数量控制在 100 以内
           if (_cache.length > 100) _cache.clear();
           _cache[cacheKey] = rawEntries;

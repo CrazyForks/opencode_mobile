@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -6,9 +7,12 @@ import '../../../../utils/translations.dart';
 import '../../../../api/models/message.dart';
 import '../../../../api/models/snapshot_file_diff.dart';
 import '../../../../controllers/session_controller.dart';
+import '../../../../controllers/tablet_tool_controller.dart';
 import '../../../../models/session_runtime_state.dart';
 import '../../../../utils/app_logger.dart';
 import '../../../../utils/app_theme.dart';
+import '../../../../utils/mention_parse.dart';
+import '../../../../utils/mention_rank.dart';
 import '../../../../utils/snackbar_utils.dart';
 
 /// User message text — aligned with desktop UserTextCard:
@@ -36,6 +40,37 @@ class _UserTextCardState extends State<UserTextCard> {
   double? _measuredWidth;
   bool _cachedIsLongText = false;
 
+  /// 内联 @ 提及高亮的 tap recognizers：随每次 build 重建，旧的必须 dispose
+  ///（时间线频繁重建，不释放即泄漏）。无 mention 时为空。
+  List<TapGestureRecognizer> _mentionTaps = [];
+
+  void _disposeMentionTaps() {
+    for (final r in _mentionTaps) {
+      r.dispose();
+    }
+    _mentionTaps = [];
+  }
+
+  @override
+  void dispose() {
+    _disposeMentionTaps();
+    super.dispose();
+  }
+
+  /// 点击内联文件提及：与输入框胶囊一致，在工作台打开该文件并定位行号。
+  /// [DisplayMentionSegment.targetLine] 已是 1-based（code_viewer 的
+  /// `_jumpToLine` 内部做 `line - 1`），此处直接透传。
+  void _openMention(DisplayMentionSegment seg) {
+    if (!Get.isRegistered<TabletToolController>()) return;
+    Get.find<TabletToolController>().openFile(
+      seg.path,
+      basenameOf(seg.path),
+      targetLine: seg.targetLine != null && seg.targetLine! > 0
+          ? seg.targetLine
+          : null,
+    );
+  }
+
   /// TextPainter measurement is cached per (content, style, width): the whole
   /// timeline rebuilds on every streaming delta flush, and this layout work
   /// would otherwise re-run for every user message each time.
@@ -57,6 +92,98 @@ class _UserTextCardState extends State<UserTextCard> {
     return _cachedIsLongText;
   }
 
+  /// 把原文中的 `@长路径` 原地换成短 label 后的纯字符串，用于行数测量。
+  /// 渲染仍用 spans（见 [_buildContent]），测量与渲染同形，避免折叠误判。
+  String _resolvedText(
+    String content,
+    List<DisplayMentionSegment> segments,
+  ) {
+    if (segments.isEmpty) return content;
+    final buf = StringBuffer();
+    var lastIndex = 0;
+    for (final seg in segments) {
+      if (seg.start < lastIndex ||
+          seg.start > content.length ||
+          seg.end > content.length ||
+          seg.start >= seg.end) {
+        continue;
+      }
+      buf.write(content.substring(lastIndex, seg.start));
+      buf.write(seg.label);
+      lastIndex = seg.end;
+    }
+    buf.write(content.substring(lastIndex));
+    return buf.toString();
+  }
+
+  /// 展示文本：有 @ 提及时把原文 token 原地替换为 basename 高亮 label
+  ///（对齐参考端 `_buildHighlightedText`：蓝色 monospace w600，可点打开文件；
+  ///裸 `@lib/` 不再出现）。无提及时走原纯 [Text] 路径。
+  Widget _buildContent(
+    BuildContext context,
+    String content,
+    List<DisplayMentionSegment> segments,
+    TextStyle? textStyle,
+    bool isExpanded,
+  ) {
+    const maxLines = 5;
+    final overflow = isExpanded ? TextOverflow.visible : TextOverflow.ellipsis;
+    final lines = isExpanded ? null : maxLines;
+    if (segments.isEmpty) {
+      // Desktop uses Text (not SelectableText) so maxLines
+      // only sizes to real line count — "?" stays one line.
+      return Text(
+        content,
+        maxLines: lines,
+        overflow: overflow,
+        style: textStyle,
+      );
+    }
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final mentionStyle = textStyle?.copyWith(
+      color: isDark ? const Color(0xFF82B1FF) : const Color(0xFF2979FF),
+      fontWeight: FontWeight.w600,
+      fontFamily: 'monospace',
+    );
+    _disposeMentionTaps();
+    final spans = <InlineSpan>[];
+    var lastIndex = 0;
+    for (final seg in segments) {
+      if (seg.start < lastIndex ||
+          seg.start > content.length ||
+          seg.end > content.length ||
+          seg.start >= seg.end) {
+        continue;
+      }
+      if (seg.start > lastIndex) {
+        spans.add(
+          TextSpan(
+            text: content.substring(lastIndex, seg.start),
+            style: textStyle,
+          ),
+        );
+      }
+      final tap = TapGestureRecognizer()
+        ..onTap = () => _openMention(seg);
+      _mentionTaps.add(tap);
+      spans.add(
+        TextSpan(text: seg.label, style: mentionStyle, recognizer: tap),
+      );
+      lastIndex = seg.end;
+    }
+    if (lastIndex < content.length) {
+      spans.add(
+        TextSpan(text: content.substring(lastIndex), style: textStyle),
+      );
+    }
+    return Text.rich(
+      TextSpan(children: spans, style: textStyle),
+      maxLines: lines,
+      overflow: overflow,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -65,13 +192,15 @@ class _UserTextCardState extends State<UserTextCard> {
       fontSize: 13.5,
       height: 1.5,
     );
+    final segments = parseDisplayMentions(content);
+    final measured = _resolvedText(content, segments);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         // Same measurement as desktop: real line count under card width.
         final textMaxWidth = constraints.maxWidth - 24;
         final isLongText = _isLongText(
-          content,
+          measured,
           textStyle,
           textMaxWidth > 0 ? textMaxWidth : 100.0,
         );
@@ -109,15 +238,12 @@ class _UserTextCardState extends State<UserTextCard> {
                         children: [
                           Padding(
                             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                            // Desktop uses Text (not SelectableText) so maxLines
-                            // only sizes to real line count — "?" stays one line.
-                            child: Text(
+                            child: _buildContent(
+                              context,
                               content,
-                              maxLines: _isExpanded ? null : 5,
-                              overflow: _isExpanded
-                                  ? TextOverflow.visible
-                                  : TextOverflow.ellipsis,
-                              style: textStyle,
+                              segments,
+                              textStyle,
+                              _isExpanded,
                             ),
                           ),
                           if (isLongText && !_isExpanded) ...[

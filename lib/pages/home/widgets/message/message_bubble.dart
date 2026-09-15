@@ -6,6 +6,7 @@ import '../../../../controllers/session_controller.dart';
 import '../../../../init.dart';
 import '../../../../models/session_runtime_state.dart';
 import '../../../../utils/card_visibility.dart';
+import '../../../../utils/mention_parse.dart';
 import '../../../../api/models/snapshot_file_diff.dart';
 import 'message_part.dart';
 import 'compaction_part.dart';
@@ -376,8 +377,23 @@ class _UserBubble extends StatelessWidget {
     // text part). Empty => file chips only, no text card.
     final userPromptText = message.userDisplayText;
 
+    // 正文已内联显示为 basename 高亮的提及，其 chip 不再重复显示；
+    // 没写 `@` 的直传附件（chip 是唯一表示）与图片照常显示。
+    final mentionPaths = parseDisplayMentions(
+      userPromptText,
+    ).map((s) => s.path).toList();
     final fileParts = message.parts
-        .where((p) => p.type == PartType.file && Global.isCardVisible('file'))
+        .where(
+          (p) =>
+              p.type == PartType.file &&
+              Global.isCardVisible('file') &&
+              !isFileCoveredByMentions(
+                filename: p.raw['filename']?.toString() ?? '',
+                url: p.raw['url']?.toString() ?? '',
+                mime: p.raw['mime']?.toString() ?? '',
+                mentionPaths: mentionPaths,
+              ),
+        )
         .toList();
 
     return Padding(

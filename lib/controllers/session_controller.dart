@@ -2002,8 +2002,9 @@ class SessionController extends GetxController with WidgetsBindingObserver {
       final isDir = filePath.endsWith('/') || filePath.endsWith('\\');
       final cleanPath = filePath.replaceAll(RegExp(r'[/\\]+$'), '');
       if (cleanPath.isEmpty) continue;
-      final rawFilename = cleanPath.split('/').last.split('\\').last;
-      final filename = isDir ? '$rawFilename/' : rawFilename;
+      // filename 对齐后端 getFilename：去尾斜杠后再取末段，目录也不带尾 `/`
+      //（目录靠 mime=application/x-directory 区分，见 prompt.ts:185）。
+      final filename = cleanPath.split('/').last.split('\\').last;
 
       var lineRange = '';
       if (refParts.length > 1 && !isDir) {

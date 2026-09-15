@@ -27,6 +27,7 @@ import 'tablet/in_app_browser_view.dart';
 import '../../controllers/vcs_controller.dart';
 import 'vcs_branch_sheet.dart';
 import '../../services/mention_search_service.dart';
+import '../../utils/mention_parse.dart';
 import '../../utils/mention_rank.dart';
 import 'inline_chip_controller.dart';
 
@@ -51,6 +52,7 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
   List<MentionRankRow> _matched = [];
   String _currentQuery = '';
   int _triggerIndex = -1;
+  int _triggerCursor = -1;
   int _selectedIndex = 0;
   Timer? _suggestDebounce;
   final _mentionService = MentionSearchService();
@@ -335,17 +337,12 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
   Future<void> _submitMessage(String text, {bool clearInput = true}) async {
     final t = text.trim();
     final state = _ctrl.stateOf(widget.sessionId);
-    // 从文本中提取通过 @ 提及的文件或目录
-    final mentionRegex = RegExp(r'@([^\s@]+)');
-    for (final m in mentionRegex.allMatches(text)) {
-      // 排除邮箱等非独立提及（行首或前面是空白/标点符号才算提及）
-      if (m.start > 0) {
-        final prevChar = text[m.start - 1];
-        if (!RegExp(r'[\s(\[{"\x27\n]').hasMatch(prevChar)) {
-          continue;
-        }
-      }
-      final mentionPath = m.group(1)!;
+    // 从文本中提取通过 @ 提及的文件或目录（边界/尾标点/去重见 mention_parse，
+    // 对齐后端 build-request-parts.ts 与 FILE_REGEX 语义）。
+    for (final ref in parseMentions(text)) {
+      final mentionPath = ref.lineRange.isNotEmpty
+          ? '${ref.path} #${ref.lineRange}'
+          : ref.path;
       if (!state.attachedFiles.contains(mentionPath)) {
         state.attachedFiles.add(mentionPath);
       }
@@ -517,7 +514,7 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
       final char = text[i];
       if (char == '\n') break;
       if (char == '@') {
-        if (i == 0 || RegExp(r'\s').hasMatch(text[i - 1])) {
+        if (i == 0 || isMentionBoundary(text[i - 1])) {
           at = i;
           break;
         }
@@ -532,7 +529,14 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
       _hideOverlay();
       return;
     }
+    // 裸 @（无查询内容）不发请求、不弹菜单：空 query 后端只能返回任意前 N 个，
+    // 与用户意图无关；打出首字后再请求。
+    if (query.trim().isEmpty) {
+      _hideOverlay();
+      return;
+    }
     _triggerIndex = at;
+    _triggerCursor = cursor;
     _currentQuery = query;
     final results = await _mentionService.search(query);
     if (!mounted || _currentQuery != query) return;
@@ -578,15 +582,24 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
     if (index < 0 || index >= _matched.length) return;
     final path = _matched[index].path;
     final text = _textController.text;
+    // 用触发时的 cursor：async 等待期间光标若已移动则放弃，避免切错文本。
+    if (_triggerIndex < 0 ||
+        _triggerCursor < 0 ||
+        _triggerCursor > text.length ||
+        _triggerIndex > _triggerCursor) {
+      _hideOverlay();
+      return;
+    }
     final before = text.substring(0, _triggerIndex);
-    final after = text.substring(_textController.selection.start);
+    final after = text.substring(_triggerCursor);
     final insertion = '@$path ';
     final newOffset = _triggerIndex + insertion.length;
     _textController.value = TextEditingValue(
       text: '$before$insertion$after',
       selection: TextSelection.collapsed(offset: newOffset),
     );
-    _textController.registerChip(_triggerIndex, newOffset);
+    // chip 范围不含尾空格：删空格不带走整颗胶囊。
+    _textController.registerChip(_triggerIndex, _triggerIndex + '@$path'.length);
     _hideOverlay();
   }
 
@@ -600,6 +613,7 @@ class _PromptInputState extends State<PromptInput> with WidgetsBindingObserver {
     _matched.clear();
     _currentQuery = '';
     _triggerIndex = -1;
+    _triggerCursor = -1;
   }
 
   Widget _buildSuggestionOverlay() {
