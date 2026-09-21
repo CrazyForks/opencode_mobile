@@ -1,17 +1,24 @@
 # OpenCode Mobile
 
 <p align="center">
-  <img src="./phone.jpg" width="30%" alt="手机端截图" />
-  &nbsp;&nbsp;
-  <img src="./tablet.jpg" width="65%" alt="平板端截图" />
+  <b>🖥️ Windows 桌面端</b><br />
+  <img src="./docs/windows.png" width="96%" alt="Windows 桌面端" />
 </p>
+
+<div align="center">
+
+| 📱 手机端 | 💻 平板端 |
+| :---: | :---: |
+| <img src="./docs/phone.jpg" width="280" alt="手机端" /> | <img src="./docs/tablet.jpg" width="600" alt="平板端" /> |
+
+</div>
 
 <p align="center">
   <a href="./README.md">English</a> | <b>简体中文</b>
 </p>
 
 > [!WARNING]
-> **非官方项目** — 本项目为 OpenCode 的**非官方**移动端客户端。
+> **非官方项目** — 本项目为 OpenCode 的**非官方**移动端与桌面端客户端。
 
 ---
 
@@ -32,9 +39,10 @@
 
 ## 📱 项目简介
 
-**OpenCode Mobile** 是基于 **Flutter** 和 **Rust** 开发的 OpenCode **非官方**移动端客户端，通过 Basic Auth 连接远程 `opencode serve` 后端。
+**OpenCode Mobile** 是基于 **Flutter** 和 **Rust** 开发的 OpenCode **非官方**客户端（支持 Android 与 Windows），通过 Basic Auth 连接远程 `opencode serve` 后端。
 
-目前针对 Android 手机与平板设备进行了适配：
+目前已针对手机、平板及 Windows 桌面端进行深度适配：
+- **Windows 桌面端**：无边框窗口与自定义标题栏、Chrome/VS Code 风格多会话页签（支持拖拽排序/滚轮滚动/中键关闭）、输入法防误触的快捷键体系（Enter 发送、Shift+Enter 换行、Esc 取消）、剪贴板图像一键粘贴等。
 - **手机端**：简洁高效的单栏对话界面，内置常用语、终端、文件树及浏览器预览。
 - **平板端**：基于分屏优化的双栏/多栏布局，大屏空间利用更充分。
 

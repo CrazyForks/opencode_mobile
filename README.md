@@ -1,17 +1,24 @@
 # OpenCode Mobile
 
 <p align="center">
-  <img src="./phone.jpg" width="30%" alt="Phone Screenshot" />
-  &nbsp;&nbsp;
-  <img src="./tablet.jpg" width="65%" alt="Tablet Screenshot" />
+  <b>🖥️ Windows Desktop</b><br />
+  <img src="./docs/windows.png" width="96%" alt="Windows Desktop Screenshot" />
 </p>
+
+<div align="center">
+
+| 📱 Phone UI | 💻 Tablet UI |
+| :---: | :---: |
+| <img src="./docs/phone.jpg" width="280" alt="Phone Screenshot" /> | <img src="./docs/tablet.jpg" width="600" alt="Tablet Screenshot" /> |
+
+</div>
 
 <p align="center">
   <b>English</b> | <a href="./README_CN.md">简体中文</a>
 </p>
 
 > [!WARNING]
-> **UNOFFICIAL PROJECT** — This is an **unofficial** mobile client for OpenCode.
+> **UNOFFICIAL PROJECT** — This is an **unofficial** mobile and desktop client for OpenCode.
 
 ---
 
@@ -32,9 +39,10 @@ My Windows offline speech-to-text project is available on the Microsoft Store:
 
 ## 📱 About The Project
 
-**OpenCode Mobile** is an **unofficial** mobile client built with **Flutter** and **Rust** for OpenCode, connecting to a remote `opencode serve` backend via Basic Auth.
+**OpenCode Mobile** is an **unofficial** client built with **Flutter** and **Rust** for OpenCode (supporting Android and Windows), connecting to a remote `opencode serve` backend via Basic Auth.
 
-Currently adapted for Android phones and tablet devices:
+Currently adapted for mobile, tablet, and Windows desktop devices:
+- **Windows Desktop UI**: Frameless window with custom titlebar, Chrome/VS Code style multi-session tab bar (drag-and-drop reordering, mouse wheel scroll, middle-click to close), full keyboard & shortcut adaptations (Enter to send with IME protection, Shift+Enter for newline, Esc to abort), and clipboard image pasting.
 - **Phone UI**: Clean and efficient single-column chat interface, with built-in quick phrases, terminal, file tree, and browser preview.
 - **Tablet UI**: Dual-pane / multi-pane layout optimized for split-screen, maximizing wide screen utilization.
 
