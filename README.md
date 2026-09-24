@@ -39,7 +39,9 @@ My Windows offline speech-to-text project is available on the Microsoft Store:
 
 ## 📱 About The Project
 
-**OpenCode Mobile** is an **unofficial** client built with **Flutter** and **Rust** for OpenCode (supporting Android and Windows), connecting to a remote `opencode serve` backend via Basic Auth.
+**OpenCode Mobile** is an **unofficial** client built with **Flutter** and **Rust** for OpenCode (supporting Android and Windows), providing versatile dual-backend connection options:
+- **Self-Hosted Server**: Direct connection via HTTP/HTTPS to your own `opencode serve` backend instance (local machine, LAN server, WSL2, or VPS).
+- **E2B Cloud Sandbox**: Deep integration with the [E2B](https://e2b.dev/) cloud sandbox platform (Website: https://e2b.dev ), spinning up instant cloud Linux development containers. New users receive **$100** in free credits!
 
 Currently adapted for mobile, tablet, and Windows desktop devices:
 - **Windows Desktop UI**: Frameless window with custom titlebar, Chrome/VS Code style multi-session tab bar (drag-and-drop reordering, mouse wheel scroll, middle-click to close), full keyboard & shortcut adaptations (Enter to send with IME protection, Shift+Enter for newline, Esc to abort), and clipboard image pasting.

@@ -39,7 +39,9 @@
 
 ## 📱 项目简介
 
-**OpenCode Mobile** 是基于 **Flutter** 和 **Rust** 开发的 OpenCode **非官方**客户端（支持 Android 与 Windows），通过 Basic Auth 连接远程 `opencode serve` 后端。
+**OpenCode Mobile** 是基于 **Flutter** 和 **Rust** 开发的 OpenCode **非官方**客户端（支持 Android 与 Windows），提供灵活的双后端连接能力：
+- **自建服务器**：通过 HTTP/HTTPS 直连自建的 `opencode serve` 后端实例（支持本地电脑、局域网主机、WSL2 或独立 VPS）。
+- **E2B 云端沙箱**：深度集成 [E2B](https://e2b.dev/) 云端沙箱平台（官网：https://e2b.dev ），秒级拉起开箱即用的 Linux 云端隔离环境，新用户注册即可获得 **$100** 免费额度。
 
 目前已针对手机、平板及 Windows 桌面端进行深度适配：
 - **Windows 桌面端**：无边框窗口与自定义标题栏、Chrome/VS Code 风格多会话页签（支持拖拽排序/滚轮滚动/中键关闭）、输入法防误触的快捷键体系（Enter 发送、Shift+Enter 换行、Esc 取消）、剪贴板图像一键粘贴等。
